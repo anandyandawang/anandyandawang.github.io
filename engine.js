@@ -880,14 +880,31 @@ function createCourt(canvas, options) {
     const nx = dx / distance;
     const ny = dy / distance;
     const bounds = birdBounds();
-    bird.x = clamp(state.pointer.canvasX + nx * (POINTER_RADIUS + BIRD_RADIUS), bounds.minX, bounds.maxX);
-    bird.y = Math.max(state.pointer.canvasY + ny * (POINTER_RADIUS + BIRD_RADIUS), bounds.minY);
+    const pushedX = state.pointer.canvasX + nx * (POINTER_RADIUS + BIRD_RADIUS);
+    const pushedY = state.pointer.canvasY + ny * (POINTER_RADIUS + BIRD_RADIUS);
+    const againstWall = pushedX < bounds.minX || pushedX > bounds.maxX;
+    const againstCeiling = pushedY < bounds.minY;
+    if (againstWall || againstCeiling) {
+      slideAlongBoundary(bird, againstWall);
+      return;
+    }
+    bird.x = pushedX;
+    bird.y = pushedY;
     const along = bird.vx * nx + bird.vy * ny;
     if (along < KNOCK_SPEED) {
       const boost = KNOCK_SPEED - along;
       bird.vx += nx * boost;
       bird.vy += ny * boost;
     }
+  }
+
+  function slideAlongBoundary(bird, againstWall) {
+    if (againstWall) {
+      bird.vy = Math.max(bird.vy, KNOCK_SPEED);
+      return;
+    }
+    const away = bird.x >= state.pointer.canvasX ? 1 : -1;
+    bird.vx = away * Math.max(Math.abs(bird.vx), KNOCK_SPEED);
   }
 
   function tryStrikes(bird) {
