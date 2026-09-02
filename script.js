@@ -33,6 +33,7 @@ function palette() {
     moss: styles.getPropertyValue("--moss").trim(),
     clay: styles.getPropertyValue("--clay").trim(),
     line: styles.getPropertyValue("--line").trim(),
+    paper: styles.getPropertyValue("--paper").trim(),
   };
 }
 
@@ -152,46 +153,92 @@ function drawCat(x, facing, swing, colors) {
   ctx.lineCap = "round";
   ctx.lineJoin = "round";
 
+  const headCenterX = 2;
+  const headCenterY = -35;
+  const headRadius = 13;
+
   ctx.beginPath();
-  ctx.moveTo(-14, 0);
-  ctx.quadraticCurveTo(-14, -20, 0, -20);
+  ctx.moveTo(-8, 0);
+  ctx.quadraticCurveTo(-8, -20, 2, -20);
   ctx.quadraticCurveTo(12, -20, 12, 0);
   ctx.closePath();
   ctx.stroke();
 
   ctx.beginPath();
-  ctx.moveTo(-14, -4);
-  ctx.quadraticCurveTo(-26, -6, -22, -20);
+  ctx.moveTo(-8, -3);
+  ctx.quadraticCurveTo(-19, -6, -15, -18);
   ctx.stroke();
 
   ctx.beginPath();
-  ctx.arc(6, -30, 10, 0, Math.PI * 2);
+  ctx.moveTo(-9, -39);
+  ctx.quadraticCurveTo(-14, -51, -4, -50);
+  ctx.quadraticCurveTo(-3, -44, -9, -39);
+  ctx.closePath();
   ctx.stroke();
 
   ctx.beginPath();
-  ctx.moveTo(-2, -38);
-  ctx.lineTo(-1, -47);
-  ctx.lineTo(5, -39);
-  ctx.moveTo(10, -39);
-  ctx.lineTo(14, -47);
-  ctx.lineTo(15, -38);
+  ctx.moveTo(13, -39);
+  ctx.quadraticCurveTo(18, -51, 8, -50);
+  ctx.quadraticCurveTo(7, -44, 13, -39);
+  ctx.closePath();
   ctx.stroke();
 
   ctx.beginPath();
-  ctx.arc(4, -31, 1.2, 0, Math.PI * 2);
-  ctx.arc(10, -31, 1.2, 0, Math.PI * 2);
+  ctx.arc(headCenterX, headCenterY, headRadius, 0, Math.PI * 2);
+  ctx.stroke();
+
+  const blushAlpha = 0.3;
+  ctx.globalAlpha = blushAlpha;
+  ctx.fillStyle = colors.clay;
+  ctx.beginPath();
+  ctx.ellipse(-7, -27, 2.6, 1.8, 0, 0, Math.PI * 2);
+  ctx.ellipse(11, -27, 2.6, 1.8, 0, 0, Math.PI * 2);
   ctx.fill();
+  ctx.globalAlpha = 1;
+
+  const eyeOffsetX = 6.5;
+  const eyeY = -31;
+  const eyeRadius = 3.4;
+  const highlightRadius = 1;
+
+  ctx.fillStyle = colors.ink;
+  ctx.beginPath();
+  ctx.arc(headCenterX - eyeOffsetX, eyeY, eyeRadius, 0, Math.PI * 2);
+  ctx.arc(headCenterX + eyeOffsetX, eyeY, eyeRadius, 0, Math.PI * 2);
+  ctx.fill();
+
+  ctx.fillStyle = colors.paper;
+  ctx.beginPath();
+  ctx.arc(headCenterX - eyeOffsetX - 1.2, eyeY - 1.2, highlightRadius, 0, Math.PI * 2);
+  ctx.arc(headCenterX + eyeOffsetX - 1.2, eyeY - 1.2, highlightRadius, 0, Math.PI * 2);
+  ctx.fill();
+
+  ctx.globalAlpha = 0.5;
+  ctx.fillStyle = colors.clay;
+  ctx.beginPath();
+  ctx.arc(headCenterX, -25.5, 1.2, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.globalAlpha = 1;
+
+  ctx.strokeStyle = colors.ink;
+  ctx.lineWidth = 1.5;
+  ctx.beginPath();
+  ctx.moveTo(headCenterX - 4.5, -22.5);
+  ctx.quadraticCurveTo(headCenterX - 2.2, -18.8, headCenterX, -22.5);
+  ctx.quadraticCurveTo(headCenterX + 2.2, -18.8, headCenterX + 4.5, -22.5);
+  ctx.stroke();
 
   ctx.lineWidth = 1;
   ctx.beginPath();
-  ctx.moveTo(12, -28); ctx.lineTo(20, -30);
-  ctx.moveTo(12, -26); ctx.lineTo(20, -25);
+  ctx.moveTo(12, -31.5); ctx.lineTo(17, -33.5);
+  ctx.moveTo(12, -28.5); ctx.lineTo(17, -27.5);
   ctx.stroke();
 
+  ctx.lineWidth = 1.6;
   const armAngle = -0.5 - swing * 1.2;
   ctx.translate(12, -18);
   ctx.rotate(armAngle);
-  ctx.lineWidth = 1.6;
+  ctx.strokeStyle = colors.ink;
   ctx.beginPath();
   ctx.moveTo(0, 0);
   ctx.lineTo(16, 0);
