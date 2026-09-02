@@ -7,6 +7,10 @@ const REST_HEIGHT = 26;
 const REST_PAUSE = 0.8;
 const KEEP_UPS_VISIBLE_RATIO = 0.6;
 const STATIC_BIRD_LIFT = 60;
+const MIN_PER_SIDE = 1;
+const MAX_PER_SIDE = 6;
+const MIN_BIRDS = 1;
+const MAX_BIRDS = 6;
 
 function racketLine(state) {
   return state.height - GROUND_MARGIN - RACKET_HEIGHT;
@@ -40,7 +44,8 @@ function drawNet(ctx, state, colors) {
 }
 
 function serveBird(state) {
-  const server = state.cats[Math.random() < 0.5 ? 0 : 1];
+  const server = state.cats[Math.floor(Math.random() * state.cats.length)];
+  if (!server) return { x: state.width / 2, y: racketLine(state), vx: 0, vy: 0 };
   return {
     x: server.x + server.facing * RACKET_OFFSET_X,
     y: racketLine(state),
@@ -57,10 +62,8 @@ const courtCanvas = document.getElementById("court");
 const keepUpsCanvas = document.getElementById("keepups");
 
 const rally = createCourt(courtCanvas, {
-  cats: [
-    { facing: 1, range: (state) => ({ min: CAT_INSET, max: state.width / 2 - CAT_NET_GAP }) },
-    { facing: -1, range: (state) => ({ min: state.width / 2 + CAT_NET_GAP, max: state.width - CAT_INSET }) },
-  ],
+  teams: { left: 1, right: 1 },
+  birds: 1,
   chooseShot: "rally",
   timeScale: () => scrollPace(courtCanvas),
   drawBackdrop: drawNet,
@@ -68,19 +71,58 @@ const rally = createCourt(courtCanvas, {
 });
 
 const keepups = createCourt(keepUpsCanvas, {
-  cats: [
-    {
-      facing: 1,
-      facesBird: true,
-      range: (state) => ({ min: CAT_INSET, max: state.width - CAT_INSET }),
-    },
-  ],
+  teams: { solo: 1 },
+  birds: 1,
   chooseShot: "keepUps",
   initialBird: restingBird,
   releaseOnStart: false,
 });
 
 const courts = { rally, keepups };
+
+function sideToFill(teams) {
+  if (teams.solo > 0) return teams.solo < MAX_PER_SIDE ? "solo" : null;
+  const side = teams.left <= teams.right ? "left" : "right";
+  return teams[side] < MAX_PER_SIDE ? side : null;
+}
+
+function sideToDrain(teams) {
+  if (teams.solo > 0) return teams.solo > MIN_PER_SIDE ? "solo" : null;
+  const side = teams.right >= teams.left ? "right" : "left";
+  return teams[side] > MIN_PER_SIDE ? side : null;
+}
+
+const courtActions = {
+  "add-cat": (court) => {
+    const side = sideToFill(court.state.teams);
+    if (side) court.addCat(side);
+  },
+  "remove-cat": (court) => {
+    const side = sideToDrain(court.state.teams);
+    if (side) court.removeCat(side);
+  },
+  "add-bird": (court) => {
+    if (court.state.birds.length < MAX_BIRDS) court.addBird();
+  },
+  "remove-bird": (court) => {
+    if (court.state.birds.length > MIN_BIRDS) court.removeBird();
+  },
+};
+
+function wireControls(court, row) {
+  if (!row) return;
+  row.addEventListener("click", (event) => {
+    const button = event.target.closest("button[data-action]");
+    if (!button) return;
+    const act = courtActions[button.dataset.action];
+    if (!act) return;
+    act(court);
+    if (reducedMotion) court.render();
+  });
+}
+
+wireControls(rally, document.querySelector('[data-controls="rally"]'));
+wireControls(keepups, document.querySelector('[data-controls="keepups"]'));
 
 function watchForRelease(court, element) {
   const watcher = new IntersectionObserver((entries) => {
@@ -95,13 +137,12 @@ function watchForRelease(court, element) {
 }
 
 if (reducedMotion) {
-  rally.state.bird = {
-    x: rally.state.width / 2,
-    y: racketLine(rally.state) - STATIC_BIRD_LIFT,
-    vx: 300,
-    vy: -60,
-    stretchElapsed: STRETCH_DURATION,
-  };
+  const still = rally.state.birds[0];
+  still.x = rally.state.width / 2;
+  still.y = racketLine(rally.state) - STATIC_BIRD_LIFT;
+  still.vx = 300;
+  still.vy = -60;
+  still.stretchElapsed = STRETCH_DURATION;
   rally.render();
   keepups.render();
 } else {
