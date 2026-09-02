@@ -1,0 +1,140 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>[Your Name]</title>
+  <meta name="description" content="Personal site of [Your Name] — [your role], [your city].">
+  <link rel="icon" href="favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <a class="skip" href="#about">skip to content</a>
+
+  <header class="top">
+    <a class="mark" href="#top" aria-label="home">[yn]</a>
+    <nav aria-label="primary">
+      <a href="#about">about</a>
+      <a href="#work">work</a>
+      <a href="#projects">projects</a>
+      <a href="#contact">contact</a>
+    </nav>
+  </header>
+
+  <main id="top">
+    <section class="hero">
+      <p class="eyebrow">hello, i'm</p>
+      <h1>[Your Name]</h1>
+      <p class="lede">[One sentence about what you do and what you care about. Keep it short and honest.]</p>
+      <div class="hero-links">
+        <a class="button" href="resume.pdf" download>résumé</a>
+        <a class="link" href="#contact">say hi</a>
+      </div>
+    </section>
+
+    <section class="court-wrap" aria-label="two cats playing badminton">
+      <canvas id="court"></canvas>
+      <p class="court-hint">move toward the middle. nudge the bird.</p>
+    </section>
+
+    <section id="about" class="block">
+      <h2>about</h2>
+      <div class="prose">
+        <p>[A short paragraph about you. Where you're from, what you've worked on, what you're looking for next.]</p>
+        <p>[A second paragraph, if you want one. This is a good spot for something human: badminton, cats, a hobby.]</p>
+      </div>
+    </section>
+
+    <section id="work" class="block">
+      <h2>work</h2>
+      <ol class="timeline">
+        <li>
+          <span class="when">[2024 — now]</span>
+          <div>
+            <h3>[Role] · [Company]</h3>
+            <p>[One or two lines on what you did and the impact it had.]</p>
+          </div>
+        </li>
+        <li>
+          <span class="when">[2022 — 2024]</span>
+          <div>
+            <h3>[Role] · [Company]</h3>
+            <p>[One or two lines on what you did and the impact it had.]</p>
+          </div>
+        </li>
+        <li>
+          <span class="when">[2020 — 2022]</span>
+          <div>
+            <h3>[Role] · [Company]</h3>
+            <p>[One or two lines on what you did and the impact it had.]</p>
+          </div>
+        </li>
+      </ol>
+    </section>
+
+    <section id="projects" class="block">
+      <h2>projects</h2>
+      <ul class="cards">
+        <li>
+          <a href="[project url]">
+            <h3>[Project name]</h3>
+            <p>[What it is, in one line.]</p>
+            <span class="tags">[tech] · [tech] · [tech]</span>
+          </a>
+        </li>
+        <li>
+          <a href="[project url]">
+            <h3>[Project name]</h3>
+            <p>[What it is, in one line.]</p>
+            <span class="tags">[tech] · [tech]</span>
+          </a>
+        </li>
+        <li>
+          <a href="[project url]">
+            <h3>[Project name]</h3>
+            <p>[What it is, in one line.]</p>
+            <span class="tags">[tech] · [tech]</span>
+          </a>
+        </li>
+      </ul>
+    </section>
+
+    <section id="skills" class="block">
+      <h2>skills</h2>
+      <dl class="skills">
+        <div><dt>languages</dt><dd>[Python, TypeScript, Go, …]</dd></div>
+        <div><dt>frameworks</dt><dd>[React, Node, Django, …]</dd></div>
+        <div><dt>tools</dt><dd>[Git, Docker, AWS, …]</dd></div>
+        <div><dt>elsewhere</dt><dd>[badminton doubles, cat photography, …]</dd></div>
+      </dl>
+    </section>
+
+    <section id="contact" class="block">
+      <h2>contact</h2>
+      <p class="prose">[A friendly line inviting people to reach out.]</p>
+      <ul class="contact">
+        <li><a href="mailto:[you@example.com]">[you@example.com]</a></li>
+        <li><a href="https://github.com/[username]">github</a></li>
+        <li><a href="https://linkedin.com/in/[username]">linkedin</a></li>
+      </ul>
+    </section>
+  </main>
+
+  <footer>
+    <span class="sleeping-cat" aria-hidden="true">
+      <svg viewBox="0 0 64 24" width="64" height="24">
+        <path d="M6 20c0-6 6-10 14-10h24c8 0 14 4 14 10z" fill="currentColor"/>
+        <path d="M44 10l3-6 4 6z M52 10l3-6 3 6z" fill="currentColor"/>
+        <path d="M6 20c-4 0-4-6 0-6" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round"/>
+        <g class="eyes" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" fill="none">
+          <path d="M47 14q1.5 1 3 0"/>
+          <path d="M53 14q1.5 1 3 0"/>
+        </g>
+      </svg>
+    </span>
+    <p>© <span id="year"></span> [Your Name]. made with very little.</p>
+  </footer>
+
+  <script src="script.js"></script>
+</body>
+</html>
