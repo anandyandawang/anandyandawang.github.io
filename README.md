@@ -6,7 +6,8 @@ A small, static personal website. No build step, no dependencies.
 
 - `index.html` — all content lives here
 - `style.css` — colours, type, layout
-- `script.js` — the two cats playing badminton
+- `engine.js` — the shuttlecock physics, the cats and the hit feel, as a reusable court
+- `site.js` — wires up the two courts: the rally in the header, the keep-ups in the about section
 - `favicon.svg` — a tiny shuttlecock
 
 ## filling it in

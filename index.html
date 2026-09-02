@@ -39,9 +39,15 @@
 
     <section id="about" class="block">
       <h2>about</h2>
-      <div class="prose">
-        <p>[A short paragraph about you. Where you're from, what you've worked on, what you're looking for next.]</p>
-        <p>[A second paragraph, if you want one. This is a good spot for something human: badminton, cats, a hobby.]</p>
+      <div class="about-grid">
+        <div class="prose">
+          <p>[A short paragraph about you. Where you're from, what you've worked on, what you're looking for next.]</p>
+          <p>[A second paragraph, if you want one. This is a good spot for something human: badminton, cats, a hobby.]</p>
+        </div>
+        <div class="keepups-wrap" aria-label="a cat keeping the shuttlecock up">
+          <canvas id="keepups"></canvas>
+          <p class="court-hint">keep-ups.</p>
+        </div>
       </div>
     </section>
 
@@ -135,6 +141,7 @@
     <p>© <span id="year"></span> [Your Name]. made with very little.</p>
   </footer>
 
-  <script src="script.js"></script>
+  <script src="engine.js"></script>
+  <script src="site.js"></script>
 </body>
 </html>
