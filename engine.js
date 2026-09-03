@@ -22,6 +22,15 @@ const FACING_MARGIN = 6;
 const RACKET_OFFSET_X = 33;
 const RACKET_HEIGHT = 30;
 const RACKET_REACH = 22;
+const RACKET_REST_ANGLE = -0.5;
+const OVERHEAD_ANGLE = -1.15;
+const OVERHEAD_OFFSET_X = 22;
+const OVERHEAD_HEIGHT = 40;
+
+const JUMP_HEIGHT = 30;
+const JUMP_SPEED = Math.sqrt(2 * GRAVITY * JUMP_HEIGHT);
+const JUMP_RISE_TIME = JUMP_SPEED / GRAVITY;
+const JUMP_ALIGNMENT = 14;
 
 const MIN_LAUNCH_ANGLE = (15 * Math.PI) / 180;
 const MAX_LAUNCH_ANGLE = (40 * Math.PI) / 180;
@@ -44,6 +53,28 @@ const KEEP_UP_MAX_TARGET = 0.7;
 const KEEP_UP_MIN_SPEED = 250;
 const KEEP_UP_MAX_SPEED = 900;
 const KEEP_UP_ITERATIONS = 12;
+
+const DRILL_SEQUENCE = ["lift", "smash", "net"];
+const DRILL_REACH_TILTS = [15, 20, 25, 30];
+const LIFT_TILTS = [35, 40, 45, 50, 55, 60, 65, 70, 75];
+const LIFT_APEX = 0.85;
+const LIFT_FLOOR_DEPTH = 0.35;
+const LIFT_MIN_DEPTH = 0.5;
+const LIFT_MAX_DEPTH = 0.8;
+const LIFT_POST = 0.5;
+const SMASH_TILTS = [-32, -26, -20, -14, -8, -3, 4];
+const SMASH_SPREAD = 12;
+const SMASH_TOLERANCE = 10;
+const SMASH_MAX_SPEED = 1500;
+const SMASH_FOLLOW_THROUGH = 0.35;
+const SMASH_POST = 0.25;
+const NET_TILTS = [50, 55, 60, 65, 70, 75, 80];
+const NET_FLOOR_DEPTH = 0;
+const NET_APEX_MIN = 55;
+const NET_APEX_MAX = 70;
+const NET_MIN_DEPTH = 0.15;
+const NET_MAX_DEPTH = 0.4;
+const NET_POST = 0.5;
 
 const POINTER_RADIUS = 22;
 const KNOCK_SPEED = 260;
@@ -69,6 +100,17 @@ const RECOIL_SCALE_X = 1.06;
 const RECOIL_SCALE_Y = 0.92;
 const KICK_DURATION = 0.06;
 const KICK_DISTANCE = 1.5;
+
+const CHEER_DURATION = 1.4;
+const PUMP_RATE = 3;
+const PUMP_LIFT = 5;
+const PUMP_SWING = 0.15;
+const HOP_HEIGHT = 10;
+const HOP_SPEED = Math.sqrt(2 * GRAVITY * HOP_HEIGHT);
+const HOP_REST = 0.1;
+const HAPPY_EYE_RADIUS = 2.2;
+const HAPPY_EYE_SPAN = 0.3;
+const HAPPY_EYE_WIDTH = 1.4;
 
 const SIDES = ["left", "right", "solo"];
 
@@ -158,9 +200,9 @@ function apexHeightForShot(origin, angle, speed) {
   return origin.y - top;
 }
 
-function aimSpeedForLanding(court, origin, angle, facing, targetX) {
-  let low = MIN_LAUNCH_SPEED;
-  let high = launchSpeedLimit(court.state.width);
+function aimSpeedForLanding(court, origin, angle, facing, targetX, minSpeed, maxSpeed) {
+  let low = typeof minSpeed === "number" ? minSpeed : MIN_LAUNCH_SPEED;
+  let high = typeof maxSpeed === "number" ? maxSpeed : launchSpeedLimit(court.state.width);
   let bestSpeed = (low + high) / 2;
   let bestError = Infinity;
   for (let i = 0; i < AIM_ITERATIONS; i += 1) {
@@ -211,6 +253,16 @@ function landingStrip(court, cat) {
   return { min, max };
 }
 
+function depthX(strip, facing, fraction) {
+  const netEnd = facing > 0 ? strip.max : strip.min;
+  const backEnd = facing > 0 ? strip.min : strip.max;
+  return netEnd + fraction * (backEnd - netEnd);
+}
+
+function randomBetween(min, max) {
+  return min + Math.random() * (max - min);
+}
+
 function rallyShot(court, cat) {
   const origin = court.racketPoint(cat);
   const strip = landingStrip(court, court.opponentOf(cat));
@@ -248,11 +300,165 @@ function keepUpShot(court, cat) {
   return { angle: best.angle, speed: best.speed };
 }
 
-const SHOT_STRATEGIES = { rally: rallyShot, keepUps: keepUpShot };
+function drillKindFor(bird) {
+  return DRILL_SEQUENCE[bird.strikes % DRILL_SEQUENCE.length];
+}
+
+function opponentStrip(court, cat, floorDepth) {
+  const opponent = court.opponentOf(cat);
+  const strip = landingStrip(court, opponent);
+  const floor = depthX(strip, opponent.facing, floorDepth);
+  return { strip, facing: opponent.facing, floor };
+}
+
+function landsShort(landing, far) {
+  if (landing === null) return true;
+  return far.facing > 0
+    ? landing > far.floor + AIM_TOLERANCE
+    : landing < far.floor - AIM_TOLERANCE;
+}
+
+function bestArcShot(court, cat, tilts, origin, targetHeight, far, targetX) {
+  let best = null;
+  for (let i = 0; i < tilts.length; i += 1) {
+    const angle = absoluteAngle((tilts[i] * Math.PI) / 180, cat.facing);
+    const speed = aimSpeedForApex(origin, angle, targetHeight);
+    const landing = landingForShot(court, origin, angle, speed);
+    const error = landing === null ? Infinity : Math.abs(landing - targetX);
+    if (best === null || error < best.error) best = { angle, speed, error, landing };
+  }
+  if (landsShort(best.landing, far)) return reachArcShot(court, cat, origin, far, targetX, best);
+  return best;
+}
+
+function speedUnderCeiling(origin, tilt) {
+  const headroom = origin.y - KEEP_UP_CEILING;
+  return Math.sqrt(2 * GRAVITY * headroom) / Math.sin(tilt);
+}
+
+function flatArcShot(court, cat, origin, targetX, stayUnderCeiling, arced) {
+  const limit = launchSpeedLimit(court.state.width);
+  let best = arced;
+  for (let i = 0; i < DRILL_REACH_TILTS.length; i += 1) {
+    const tilt = (DRILL_REACH_TILTS[i] * Math.PI) / 180;
+    const angle = absoluteAngle(tilt, cat.facing);
+    const high = stayUnderCeiling
+      ? clamp(speedUnderCeiling(origin, tilt), MIN_LAUNCH_SPEED, limit)
+      : limit;
+    const aim = aimSpeedForLanding(
+      court,
+      origin,
+      angle,
+      cat.facing,
+      targetX,
+      MIN_LAUNCH_SPEED,
+      high
+    );
+    if (aim.error < best.error) best = { angle, speed: aim.speed, error: aim.error };
+  }
+  return best;
+}
+
+function reachArcShot(court, cat, origin, far, targetX, arced) {
+  const under = flatArcShot(court, cat, origin, targetX, true, arced);
+  if (!landsShort(landingForShot(court, origin, under.angle, under.speed), far)) return under;
+  return flatArcShot(court, cat, origin, targetX, false, under);
+}
+
+function liftShot(court, cat) {
+  const origin = court.reachPoint(cat);
+  const far = opponentStrip(court, cat, LIFT_FLOOR_DEPTH);
+  const targetX = depthX(far.strip, far.facing, randomBetween(LIFT_MIN_DEPTH, LIFT_MAX_DEPTH));
+  const targetHeight = (origin.y - KEEP_UP_CEILING) * LIFT_APEX;
+  const best = bestArcShot(court, cat, LIFT_TILTS, origin, targetHeight, far, targetX);
+  return {
+    angle: best.angle,
+    speed: best.speed,
+    kind: "lift",
+    post: depthX(court.catRange(cat), cat.facing, LIFT_POST),
+  };
+}
+
+function netShot(court, cat) {
+  const origin = court.reachPoint(cat);
+  const far = opponentStrip(court, cat, NET_FLOOR_DEPTH);
+  const targetX = depthX(far.strip, far.facing, randomBetween(NET_MIN_DEPTH, NET_MAX_DEPTH));
+  const targetHeight = randomBetween(NET_APEX_MIN, NET_APEX_MAX);
+  const best = bestArcShot(court, cat, NET_TILTS, origin, targetHeight, far, targetX);
+  return {
+    angle: best.angle,
+    speed: best.speed,
+    kind: "net",
+    post: depthX(court.catRange(cat), cat.facing, NET_POST),
+  };
+}
+
+function smashShot(court, cat) {
+  const origin = court.reachPoint(cat);
+  const opponent = court.opponentOf(cat);
+  const strip = landingStrip(court, opponent);
+  const aimed = court.racketPoint(opponent).x + randomBetween(-SMASH_SPREAD, SMASH_SPREAD);
+  const targetX = clamp(aimed, strip.min, strip.max);
+  const limit = Math.max(SMASH_MAX_SPEED, launchSpeedLimit(court.state.width));
+  let best = null;
+  let steep = null;
+  for (let i = 0; i < SMASH_TILTS.length; i += 1) {
+    const angle = absoluteAngle((SMASH_TILTS[i] * Math.PI) / 180, cat.facing);
+    const aim = aimSpeedForLanding(
+      court,
+      origin,
+      angle,
+      cat.facing,
+      targetX,
+      MIN_LAUNCH_SPEED,
+      limit
+    );
+    if (best === null || aim.error < best.error) best = { angle, speed: aim.speed, error: aim.error };
+    if (steep === null && aim.error <= SMASH_TOLERANCE) steep = { angle, speed: aim.speed };
+  }
+  const chosen = steep || best;
+  return {
+    angle: chosen.angle,
+    speed: chosen.speed,
+    kind: "smash",
+    post: depthX(court.catRange(cat), cat.facing, SMASH_POST),
+  };
+}
+
+function drillShot(court, cat, bird) {
+  const kind = drillKindFor(bird);
+  if (kind === "smash") return smashShot(court, cat);
+  if (kind === "net") return netShot(court, cat);
+  return liftShot(court, cat);
+}
+
+function drillStance(court, cat, bird) {
+  return drillKindFor(bird) === "smash" ? "overhead" : "ground";
+}
+
+function groundStance() {
+  return "ground";
+}
+
+const SHOT_STRATEGIES = {
+  rally: { shot: rallyShot, stance: groundStance },
+  keepUps: { shot: keepUpShot, stance: groundStance },
+  drill: { shot: drillShot, stance: drillStance },
+};
 
 function resolveStrategy(choice) {
-  if (typeof choice === "function") return choice;
-  return SHOT_STRATEGIES[choice] || rallyShot;
+  if (typeof choice === "function") return { shot: choice, stance: groundStance };
+  if (choice && typeof choice.shot === "function") {
+    const stance = typeof choice.stance === "function" ? choice.stance : groundStance;
+    return { shot: choice.shot, stance };
+  }
+  return SHOT_STRATEGIES[choice] || SHOT_STRATEGIES.rally;
+}
+
+function isCheering(state, cat) {
+  if (!state.celebration || !cat.cheer) return false;
+  if (cat.side !== state.celebration.side) return false;
+  return cat.receiving === null;
 }
 
 function drawGround(ctx, state, colors) {
@@ -265,11 +471,18 @@ function drawGround(ctx, state, colors) {
   ctx.stroke();
 }
 
-function drawCat(ctx, cat, ground, colors) {
+function drawCat(ctx, cat, ground, colors, state) {
   const swing = Math.pow(cat.swing, SWING_SNAP);
   const recoil = decay(progress(cat.recoilElapsed, RECOIL_DURATION));
+  const cheering = isCheering(state, cat);
+  const pumping = cheering && cat.cheer === "pump";
+  const pump = pumping ? (1 - Math.cos(state.simTime * PUMP_RATE * Math.PI * 2)) / 2 : 0;
+  const restAngle = cat.stance === "overhead" ? OVERHEAD_ANGLE : RACKET_REST_ANGLE;
+  const racketAngle = pumping
+    ? OVERHEAD_ANGLE + PUMP_SWING * pump
+    : restAngle + (cat.swingFrom - restAngle) * swing;
   ctx.save();
-  ctx.translate(cat.x, ground);
+  ctx.translate(cat.x, ground - cat.rise);
   ctx.scale(1 + (RECOIL_SCALE_X - 1) * recoil, 1 + (RECOIL_SCALE_Y - 1) * recoil);
   ctx.rotate(cat.vx * LEAN);
   ctx.scale(cat.facing, 1);
@@ -304,10 +517,20 @@ function drawCat(ctx, cat, ground, colors) {
   ctx.lineTo(15, -38);
   ctx.stroke();
 
-  ctx.beginPath();
-  ctx.arc(4, -31, 1.2, 0, Math.PI * 2);
-  ctx.arc(10, -31, 1.2, 0, Math.PI * 2);
-  ctx.fill();
+  if (cheering) {
+    ctx.lineWidth = HAPPY_EYE_WIDTH;
+    ctx.beginPath();
+    ctx.arc(4, -31, HAPPY_EYE_RADIUS, Math.PI + HAPPY_EYE_SPAN, Math.PI * 2 - HAPPY_EYE_SPAN);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.arc(10, -31, HAPPY_EYE_RADIUS, Math.PI + HAPPY_EYE_SPAN, Math.PI * 2 - HAPPY_EYE_SPAN);
+    ctx.stroke();
+  } else {
+    ctx.beginPath();
+    ctx.arc(4, -31, 1.2, 0, Math.PI * 2);
+    ctx.arc(10, -31, 1.2, 0, Math.PI * 2);
+    ctx.fill();
+  }
 
   ctx.lineWidth = 1;
   ctx.beginPath();
@@ -315,8 +538,8 @@ function drawCat(ctx, cat, ground, colors) {
   ctx.moveTo(12, -26); ctx.lineTo(20, -25);
   ctx.stroke();
 
-  ctx.translate(12, -18);
-  ctx.rotate(-0.5 - swing * SWING_ARC);
+  ctx.translate(12, -18 - PUMP_LIFT * pump);
+  ctx.rotate(racketAngle);
   ctx.lineWidth = 1.6;
   ctx.beginPath();
   ctx.moveTo(0, 0);
@@ -370,7 +593,9 @@ function drawRings(ctx, effects, colors) {
 function createCourt(canvas, options) {
   const settings = options || {};
   const ctx = canvas.getContext("2d");
-  const chooseShot = resolveStrategy(settings.chooseShot);
+  const strategy = resolveStrategy(settings.chooseShot);
+  const chooseShot = strategy.shot;
+  const chooseStance = strategy.stance;
   const paceOf = settings.timeScale || (() => 1);
 
   const state = {
@@ -382,6 +607,7 @@ function createCourt(canvas, options) {
     teams: { left: 0, right: 0, solo: 0 },
     effects: [],
     kick: null,
+    celebration: null,
     timeScale: 1,
     simTime: 0,
     hitStop: 0,
@@ -448,7 +674,14 @@ function createCourt(canvas, options) {
       facesBird: spec.facesBird === undefined ? side === "solo" : spec.facesBird === true,
       target: 0,
       home: 0,
+      post: null,
+      stance: "ground",
+      rise: 0,
+      riseSpeed: 0,
+      groundedFor: 0,
+      cheer: null,
       swing: 0,
+      swingFrom: RACKET_REST_ANGLE - SWING_ARC,
       swingElapsed: SWING_DURATION,
       recoilElapsed: RECOIL_DURATION,
       receiving: null,
@@ -469,6 +702,7 @@ function createCourt(canvas, options) {
       cat.vx = 0;
     }
     cat.target = clamp(cat.target, range.min, range.max);
+    if (cat.post !== null) cat.post = clamp(cat.post, range.min, range.max);
   }
 
   function layoutCats() {
@@ -511,6 +745,7 @@ function createCourt(canvas, options) {
       for (let b = 0; b < state.birds.length; b += 1) {
         if (state.birds[b].receiver === gone) state.birds[b].receiver = null;
         if (state.birds[b].keeper === gone) state.birds[b].keeper = null;
+        if (state.birds[b].striker === gone) state.birds[b].striker = null;
       }
       layoutCats();
       return gone;
@@ -533,6 +768,21 @@ function createCourt(canvas, options) {
     return { x: cat.x + cat.facing * RACKET_OFFSET_X, y: racketY() };
   }
 
+  function reachPoint(cat) {
+    if (cat.stance === "overhead") {
+      return {
+        x: cat.x + cat.facing * OVERHEAD_OFFSET_X,
+        y: groundY() - OVERHEAD_HEIGHT - cat.rise,
+      };
+    }
+    return { x: cat.x + cat.facing * RACKET_OFFSET_X, y: racketY() - cat.rise };
+  }
+
+  function reachHeightFor(cat) {
+    if (cat.stance === "overhead") return groundY() - OVERHEAD_HEIGHT - JUMP_HEIGHT;
+    return racketY();
+  }
+
   function opponentOf(cat) {
     const wanted = cat.side === "left" ? "right" : "left";
     for (let i = 0; i < state.cats.length; i += 1) {
@@ -548,8 +798,7 @@ function createCourt(canvas, options) {
     return { minX: BIRD_RADIUS, maxX: state.width - BIRD_RADIUS, minY: BIRD_RADIUS };
   }
 
-  function predictCrossing(source) {
-    const targetY = racketY();
+  function predictCrossingAt(source, targetY) {
     const bounds = birdBounds();
     const probe = { x: source.x, y: source.y, vx: source.vx, vy: source.vy };
     const steps = Math.ceil(PREDICT_HORIZON / PREDICT_STEP);
@@ -569,6 +818,10 @@ function createCourt(canvas, options) {
     return null;
   }
 
+  function predictCrossing(source) {
+    return predictCrossingAt(source, racketY());
+  }
+
   function predictLandingX(source) {
     const crossing = predictCrossing(source);
     return crossing === null ? null : crossing.x;
@@ -584,9 +837,12 @@ function createCourt(canvas, options) {
       holdUntil: 0,
       respawnAt: 0,
       stretchElapsed: STRETCH_DURATION,
+      strikes: 0,
+      shot: null,
       crossing: null,
       receiver: null,
       keeper: null,
+      striker: null,
     };
   }
 
@@ -607,11 +863,48 @@ function createCourt(canvas, options) {
     bird.stretchElapsed = STRETCH_DURATION;
     bird.holdUntil = state.simTime + (placement.hold || 0);
     bird.respawnAt = 0;
+    bird.strikes = 0;
+    bird.shot = null;
+    bird.striker = null;
     bird.crossing = null;
     bird.receiver = null;
     bird.keeper = null;
     bird.inPlay = true;
     return bird;
+  }
+
+  function anyBirdInPlay() {
+    for (let i = 0; i < state.birds.length; i += 1) {
+      if (state.birds[i].inPlay) return true;
+    }
+    return false;
+  }
+
+  function clearPosts() {
+    for (let i = 0; i < state.cats.length; i += 1) state.cats[i].post = null;
+  }
+
+  function celebrate(bird) {
+    if (anyBirdInPlay()) return false;
+    clearPosts();
+    if (state.teams.left < 1 || state.teams.right < 1) return false;
+    const side = bird.x < state.width / 2 ? "right" : "left";
+    state.celebration = { side, until: state.simTime + CHEER_DURATION };
+    for (let i = 0; i < state.cats.length; i += 1) {
+      const cat = state.cats[i];
+      if (cat.side !== side) continue;
+      cat.cheer = Math.random() < 0.5 ? "pump" : "hop";
+      cat.groundedFor = 0;
+      cat.vx = 0;
+      cat.target = cat.x;
+    }
+    return true;
+  }
+
+  function ageCelebration() {
+    if (!state.celebration || state.simTime < state.celebration.until) return;
+    state.celebration = null;
+    for (let i = 0; i < state.cats.length; i += 1) state.cats[i].cheer = null;
   }
 
   function retire(bird) {
@@ -620,7 +913,8 @@ function createCourt(canvas, options) {
     bird.crossing = null;
     bird.receiver = null;
     bird.keeper = null;
-    bird.respawnAt = state.simTime + RESPAWN_DELAY;
+    const cheered = celebrate(bird);
+    bird.respawnAt = state.simTime + (cheered ? CHEER_DURATION : RESPAWN_DELAY);
     state.misses += 1;
     if (settings.onMiss) settings.onMiss(court);
   }
@@ -650,8 +944,14 @@ function createCourt(canvas, options) {
   }
 
   function strike(cat, bird) {
-    const origin = racketPoint(cat);
-    const shot = chooseShot(court, cat);
+    const origin = reachPoint(cat);
+    const shot = chooseShot(court, cat, bird);
+    const range = catRange(cat);
+    bird.strikes += 1;
+    bird.shot = typeof shot.kind === "string" ? shot.kind : null;
+    cat.swingFrom = cat.stance === "overhead" ? SMASH_FOLLOW_THROUGH : RACKET_REST_ANGLE - SWING_ARC;
+    cat.post = typeof shot.post === "number" ? clamp(shot.post, range.min, range.max) : null;
+    bird.striker = cat;
     const velocity = velocityFor(shot.angle, shot.speed);
     bird.x = origin.x;
     bird.y = origin.y;
@@ -674,7 +974,8 @@ function createCourt(canvas, options) {
 
   function racketTargetFor(cat, x) {
     const range = catRange(cat);
-    return clamp(x - cat.facing * RACKET_OFFSET_X, range.min, range.max);
+    const offset = cat.stance === "overhead" ? OVERHEAD_OFFSET_X : RACKET_OFFSET_X;
+    return clamp(x - cat.facing * offset, range.min, range.max);
   }
 
   function arrivalTime(cat, x) {
@@ -730,6 +1031,22 @@ function createCourt(canvas, options) {
       bird.receiver = cat;
     }
     untangle();
+    applyStances();
+  }
+
+  function applyStances() {
+    for (let i = 0; i < state.cats.length; i += 1) {
+      const cat = state.cats[i];
+      if (!cat.receiving) {
+        cat.stance = "ground";
+        continue;
+      }
+      const bird = cat.receiving;
+      cat.stance = chooseStance(court, cat, bird) === "overhead" ? "overhead" : "ground";
+      if (cat.stance !== "overhead") continue;
+      const raised = predictCrossingAt(bird, reachHeightFor(cat));
+      if (raised) bird.crossing = raised;
+    }
   }
 
   function untangle() {
@@ -759,6 +1076,8 @@ function createCourt(canvas, options) {
     for (let i = 0; i < state.cats.length; i += 1) {
       const cat = state.cats[i];
       if (cat.receiving) cat.target = racketTargetFor(cat, cat.receiving.crossing.x);
+      else if (isCheering(state, cat)) cat.target = cat.x;
+      else if (cat.post !== null) cat.target = cat.post;
       else cat.target = cat.home;
     }
   }
@@ -851,16 +1170,47 @@ function createCourt(canvas, options) {
     else if (focus < cat.x - FACING_MARGIN) cat.facing = -1;
   }
 
+  function wantsJump(cat) {
+    if (cat.stance !== "overhead" || !cat.receiving) return false;
+    if (cat.receiving.crossing.time > JUMP_RISE_TIME) return false;
+    return Math.abs(cat.target - cat.x) <= JUMP_ALIGNMENT;
+  }
+
+  function raiseCat(cat, dt) {
+    if (cat.rise > 0 || cat.riseSpeed !== 0) {
+      cat.riseSpeed -= GRAVITY * dt;
+      cat.rise += cat.riseSpeed * dt;
+      if (cat.rise <= 0) {
+        cat.rise = 0;
+        cat.riseSpeed = 0;
+        cat.groundedFor = 0;
+      }
+      return;
+    }
+    cat.groundedFor += dt;
+    if (wantsJump(cat)) {
+      cat.riseSpeed = JUMP_SPEED;
+      cat.groundedFor = 0;
+      return;
+    }
+    if (cat.cheer === "hop" && isCheering(state, cat) && cat.groundedFor >= HOP_REST) {
+      cat.riseSpeed = HOP_SPEED;
+      cat.groundedFor = 0;
+    }
+  }
+
   function moveCat(cat, dt) {
     const range = catRange(cat);
-    const delta = cat.target - cat.x;
-    const direction = Math.sign(delta);
-    const desired = clamp(
-      direction * Math.sqrt(2 * CAT_ACCEL * Math.abs(delta)),
-      -CAT_MAX_SPEED,
-      CAT_MAX_SPEED
-    );
-    cat.vx += clamp(desired - cat.vx, -CAT_ACCEL * dt, CAT_ACCEL * dt);
+    if (cat.rise <= 0) {
+      const delta = cat.target - cat.x;
+      const direction = Math.sign(delta);
+      const desired = clamp(
+        direction * Math.sqrt(2 * CAT_ACCEL * Math.abs(delta)),
+        -CAT_MAX_SPEED,
+        CAT_MAX_SPEED
+      );
+      cat.vx += clamp(desired - cat.vx, -CAT_ACCEL * dt, CAT_ACCEL * dt);
+    }
     cat.x += cat.vx * dt;
     if (cat.x < range.min) {
       cat.x = range.min;
@@ -908,11 +1258,15 @@ function createCourt(canvas, options) {
   }
 
   function tryStrikes(bird) {
-    if (bird.vy <= 0) return;
+    const descending = bird.vy > 0;
     for (let i = 0; i < state.cats.length; i += 1) {
       const cat = state.cats[i];
-      const point = racketPoint(cat);
-      if (Math.hypot(bird.x - point.x, bird.y - point.y) > RACKET_REACH) continue;
+      const point = reachPoint(cat);
+      if (Math.hypot(bird.x - point.x, bird.y - point.y) > RACKET_REACH) {
+        if (bird.striker === cat) bird.striker = null;
+        continue;
+      }
+      if (!descending || bird.striker === cat) continue;
       strike(cat, bird);
       return;
     }
@@ -939,11 +1293,15 @@ function createCourt(canvas, options) {
   function advance(dt) {
     state.simTime += dt;
     ageEffects(dt);
+    ageCelebration();
     updateAssignments();
     for (let i = 0; i < state.cats.length; i += 1) faceCat(state.cats[i]);
     aimCats();
     spaceTeammates();
-    for (let i = 0; i < state.cats.length; i += 1) moveCat(state.cats[i], dt);
+    for (let i = 0; i < state.cats.length; i += 1) {
+      raiseCat(state.cats[i], dt);
+      moveCat(state.cats[i], dt);
+    }
 
     const bounds = birdBounds();
     const floor = groundY() - BIRD_RADIUS;
@@ -1012,7 +1370,7 @@ function createCourt(canvas, options) {
     ctx.translate(offset.x, offset.y);
     drawGround(ctx, state, colors);
     if (settings.drawBackdrop) settings.drawBackdrop(ctx, state, colors);
-    for (let i = 0; i < lineup.length; i += 1) drawCat(ctx, lineup[i], ground, colors);
+    for (let i = 0; i < lineup.length; i += 1) drawCat(ctx, lineup[i], ground, colors, state);
     for (let i = 0; i < state.birds.length; i += 1) {
       if (state.birds[i].inPlay) drawBird(ctx, state.birds[i], colors);
     }
@@ -1081,10 +1439,12 @@ function createCourt(canvas, options) {
     groundY,
     racketY,
     racketPoint,
+    reachPoint,
     catRange,
     opponentOf,
     predictLandingX,
     predictCrossing,
+    predictCrossingAt,
     addCat,
     removeCat,
     setTeams,
