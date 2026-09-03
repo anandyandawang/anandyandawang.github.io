@@ -60,6 +60,7 @@ function restingBird(state) {
 
 const courtCanvas = document.getElementById("court");
 const keepUpsCanvas = document.getElementById("keepups");
+const drillCanvas = document.getElementById("drill");
 
 const rally = createCourt(courtCanvas, {
   teams: { left: 1, right: 1 },
@@ -78,7 +79,16 @@ const keepups = createCourt(keepUpsCanvas, {
   releaseOnStart: false,
 });
 
-const courts = { rally, keepups };
+const drill = createCourt(drillCanvas, {
+  teams: { left: 1, right: 1 },
+  birds: 1,
+  chooseShot: "drill",
+  drawBackdrop: drawNet,
+  initialBird: serveBird,
+  releaseOnStart: false,
+});
+
+const courts = { rally, keepups, drill };
 
 function sideToFill(teams) {
   if (teams.solo > 0) return teams.solo < MAX_PER_SIDE ? "solo" : null;
@@ -123,6 +133,7 @@ function wireControls(court, row) {
 
 wireControls(rally, document.querySelector('[data-controls="rally"]'));
 wireControls(keepups, document.querySelector('[data-controls="keepups"]'));
+wireControls(drill, document.querySelector('[data-controls="drill"]'));
 
 function watchForRelease(court, element) {
   const watcher = new IntersectionObserver((entries) => {
@@ -145,8 +156,11 @@ if (reducedMotion) {
   still.stretchElapsed = STRETCH_DURATION;
   rally.render();
   keepups.render();
+  drill.render();
 } else {
   rally.start();
   keepups.start();
+  drill.start();
   watchForRelease(keepups, keepUpsCanvas);
+  watchForRelease(drill, drillCanvas);
 }

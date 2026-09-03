@@ -6,10 +6,10 @@ A static site with no build step: plain HTML, one stylesheet, and two classic sc
 
 | file | role |
 | --- | --- |
-| `index.html` | all page content, the two court frames and their control rows |
+| `index.html` | all page content, the three court frames and their control rows |
 | `style.css` | design tokens, type, layout, court frames and controls |
 | `engine.js` | the court engine: physics, cats, shots, hit feel, drawing. Knows nothing about the page |
-| `site.js` | page glue: builds the two courts, scroll pace, keep-ups release, control buttons |
+| `site.js` | page glue: builds the three courts, scroll pace, release-on-visibility, control buttons |
 | `favicon.svg` | shuttlecock icon |
 | `DESIGN.md` | design guidelines |
 | `ARCHITECTURE.md` | this file |
@@ -24,37 +24,50 @@ A static site with no build step: plain HTML, one stylesheet, and two classic sc
 | --- | --- |
 | `teams` | `{ left, right, solo }` cat counts. Left and right cats face the net and stay in their half; solo cats roam the whole width and turn to face the bird |
 | `birds` | how many shuttlecocks to serve at start |
-| `chooseShot` | `"rally"`, `"keepUps"`, or a function `(court, cat) => { angle, speed }` |
+| `chooseShot` | `"rally"`, `"keepUps"`, `"drill"`, a function `(court, cat, bird) => shot`, or an object `{ shot, stance }`. An unrecognised string falls back to rally |
 | `timeScale` | `() => number`, a multiplier applied to simulated time every frame |
 | `drawBackdrop` | `(ctx, state, colors) => void`, court furniture such as the net |
 | `initialBird` | `(state) => { x, y, vx, vy, hold }`, where a bird appears when served or respawned; `hold` keeps it still for that many seconds |
 | `releaseOnStart` | `false` keeps birds held until `court.release()` is called |
 
-The court exposes `state`, `start()`, `stop()`, `release()`, `step(dt)`, `render()`, `addCat(side)`, `removeCat(side)`, `setTeams(counts)`, `addBird()`, `removeBird()`, and a few geometry helpers (`groundY`, `racketY`, `racketPoint`, `catRange`, `predictCrossing`).
+A shot function returns `{ angle, speed, kind?, post? }`. `kind` is a string recorded on the bird (`null` when absent, so a caller can tell what was just hit). `post` is an absolute x the cat idles at after the strike instead of walking home, clamped to the cat's range; it is ignored when not a number. A stance function `(court, cat, bird) => "ground" | "overhead"` is asked every time a cat is assigned a bird; anything other than `"overhead"` reads as `"ground"`. Passing a bare function as `chooseShot` keeps the ground stance; passing `{ shot, stance }` uses both, defaulting `stance` to ground when omitted.
+
+The court exposes `state`, `start()`, `stop()`, `release()`, `step(dt)`, `render()`, `addCat(side)`, `removeCat(side)`, `setTeams(counts)`, `addBird()`, `removeBird()`, and a few geometry helpers (`groundY`, `racketY`, `racketPoint`, `reachPoint`, `catRange`, `opponentOf`, `predictCrossing`, `predictCrossingAt`, `predictLandingX`).
+
+- `reachPoint(cat)` is the point the cat can actually strike from: ground stance is `racketPoint(cat)` shifted up by `cat.rise`; overhead stance is `{ x: cat.x + cat.facing * OVERHEAD_OFFSET_X, y: groundY() - OVERHEAD_HEIGHT - cat.rise }`. `racketPoint` stays the plain ground geometry helper, still used by `site.js`'s `serveBird`.
+- `predictCrossingAt(source, targetY)` generalises crossing prediction to any height; `predictCrossing(source)` is `predictCrossingAt(source, racketY())`.
 
 ### state
 
-- `state.cats`: `{ side, index, x, vx, facing, home, target, receiving }` plus effect timers. Ranges derive from the side; homes are spread evenly across the side's range.
-- `state.birds`: `{ x, y, vx, vy, inPlay, holdUntil, respawnAt, crossing, receiver }` plus effect timers. `state.bird` is a getter for the first bird in play, kept for tests.
-- `state.effects`: impact rings. `state.kick`: the current court kick. `state.hits`, `state.misses`, `state.simTime`, `state.timeScale`, `state.pointer`, `state.width`, `state.height`.
+- `state.cats`: `{ side, index, x, vx, facing, home, target, post, stance, rise, riseSpeed, groundedFor, cheer, receiving }` plus effect timers. Ranges derive from the side; homes are spread evenly across the side's range. `stance` is `"ground"` or `"overhead"`, recomputed every frame from the strategy (a non-receiving cat is always `"ground"`). `rise` is px above the ground line (never negative), `riseSpeed` is px/s with positive meaning up, `groundedFor` is seconds since landing and drives the cheer hop's rest. `post` is the absolute x a cat idles at after a strike, or `null`. `cheer` is `null`, `"pump"` or `"hop"`. `swingFrom` (the racket angle at the moment of the last strike) also lives here, initialised so an untouched cat draws exactly as before.
+- `state.birds`: `{ x, y, vx, vy, inPlay, holdUntil, respawnAt, strikes, shot, crossing, receiver, striker }` plus effect timers. `strikes` counts hits since the last serve, reset in `serve`, incremented in `strike` after the shot strategy has run. `shot` is the `kind` string of the last strike, or `null`. `striker` is the cat that last hit this bird, cleared once the bird leaves that cat's reach (so a cat cannot re-hit its own falling smash) and cleared in `serve` and when the cat is removed. `state.bird` is a getter for the first bird in play, kept for tests.
+- `state.effects`: impact rings. `state.kick`: the current court kick. `state.celebration`: `null`, or `{ side, until }` while a side is cheering after winning a point. `state.hits`, `state.misses`, `state.simTime`, `state.timeScale`, `state.pointer`, `state.width`, `state.height`.
 
 ### one frame
 
 1. Read `options.timeScale()` and the canvas size.
 2. Sub-step the simulation so no step exceeds 1/120 s of simulated time. A hit-stop pauses simulated time for a few real milliseconds.
-3. For each bird in play: `advanceBird` integrates gravity and quadratic drag, then reflects off the left wall, right wall and ceiling with restitution. The floor is a miss: the bird retires, waits `RESPAWN_DELAY`, and is placed again by `initialBird`.
+3. For each bird in play: `advanceBird` integrates gravity and quadratic drag, then reflects off the left wall, right wall and ceiling with restitution. The floor is a miss: the bird retires, a celebration starts if the point ends a rally with cats on both sides, and the bird waits `RESPAWN_DELAY` (or, mid-cheer, until the cheer ends) before `initialBird` places it again.
 4. Pointer knock: a bird overlapping the pointer ring is pushed out to the ring's edge, clamped inside the walls, and given at least `KNOCK_SPEED` away from the pointer.
-5. Assignment: every bird's next crossing of racket height is predicted with the same `advanceBird`, so bounces are accounted for. Birds are sorted by time to crossing; each is given the free cat on the landing side with the shortest estimated arrival time. Everyone else targets home. Same-side cats keep `CAT_SPACING` apart by adjusting targets, never positions.
-6. Steering: each cat accelerates toward its target with capped acceleration and speed and decelerates to arrive, clamped to its range.
-7. Strikes: a descending bird within `RACKET_REACH` of a cat's racket point is struck. The shot strategy picks a target and searches the launch speed with the predictor so the shot lands where intended: the rally aims into the opponent's reachable strip, keep-ups aims for an apex height and a landing near the middle.
-8. Effects age: swing, ring, stretch, recoil, kick.
+5. Assignment: every bird's next crossing of racket height is predicted with the same `advanceBird`, so bounces are accounted for. Birds are sorted by time to crossing; each is given the free cat on the landing side with the shortest estimated arrival time. Once a cat is assigned, its stance is asked of the strategy; an overhead stance recomputes the bird's crossing at the height the raised racket reaches (falling back to the racket-height crossing when that misses). Everyone else targets home or, if cheering, stays put. Same-side cats keep `CAT_SPACING` apart by adjusting targets, never positions.
+6. Steering: each cat accelerates toward its target with capped acceleration and speed and decelerates to arrive, clamped to its range; a receiving cat aims for the bird's crossing, a cheering cat aims for its own x, everyone else aims for its `post` when set or its `home` otherwise. A grounded cat in overhead stance jumps when its bird is nearly at reach height and it is close enough to its target; while airborne it keeps its horizontal velocity but cannot accelerate, and gravity brings it back down.
+7. Strikes: a descending bird within `RACKET_REACH` of a cat's `reachPoint` is struck. The shot strategy picks a target and searches the launch speed with the predictor so the shot lands where intended: the rally aims into the opponent's reachable strip, keep-ups aims for an apex height and a landing near the middle, the drill cycles lift, smash and net.
+8. Effects age: swing, ring, stretch, recoil, kick, and the celebration itself — cleared, along with every cheering cat's cheer, on the first sub-step at or after its `until` time.
 9. Render: ground, backdrop, cats left to right, birds, rings, pointer ring, all under the kick translation.
 
 Reduced motion renders one still frame and never starts the loop.
 
+### the drill
+
+The drill court's shot strategy cycles a bird through three kinds, in order, forever: `lift`, `smash`, `net`. The kind for a bird's next strike is `DRILL_SEQUENCE[bird.strikes % 3]`, so it is decided per bird and does not care which cat happens to be free — the server lifts, the far side smashes it down, the server nets it back up, and the far side lifts next. A lift and a net shot are hit from the ground and arc the bird up and over into a chosen depth of the opponent's court; a smash is hit overhead, at the top of a jump, and drives the bird down and fast at the opponent's racket. An arc's height is capped by the ceiling, so on a very wide frame the target can sit past what a lift or a net shot can reach. When the arc would land short of the opponent's court the shot is retried flat and fast: first at the quickest speed that still keeps it under the ceiling, then, if that is short too, at the same speed limit the rally uses. A smash aims with that limit as well, so it can still reach a deep opponent on a wide court. After each strike the cat retreats to a `post` — a fixed depth of its own court appropriate to what it just hit (deep after a lift to defend the smash, near the net after a smash to block the net shot, mid-court after a net shot) — instead of walking all the way home, so it is already roughly in position for its next turn.
+
+### the cheer
+
+When a bird hits the floor and no bird is left in play on a court with cats on both sides, the side that did not lose the point celebrates: `state.celebration` is set with a 1.4 second `until`, each of its cats gets a `cheer` of `"pump"` or `"hop"` (chosen at random) and stops where it stands, and the respawn is delayed to match. A cheering cat draws happy eye-arcs instead of dot eyes; a `"pump"` cat holds its racket up and pumps it in a short rhythmic loop, a `"hop"` cat does small vertical hops with the same gravity as the drill's jump. The losing side just walks home. Once the cheer ends the celebration and every cat's cheer clear together, and the next bird is served as usual. Solo courts (the keep-ups) never celebrate.
+
 ### hit feel
 
-Every strike, on every court, triggers the same small set: hit-stop, racket whip, expanding ring, bird stretch along its velocity, cat squash, and a 1.5 px kick of the whole court. Bounces get a smaller, fainter ring. The constants live at the top of `engine.js`; there is no per-court override on purpose, so the two courts always feel the same.
+Every strike, on every court, triggers the same small set: hit-stop, racket whip, expanding ring, bird stretch along its velocity, cat squash, and a 1.5 px kick of the whole court. Bounces get a smaller, fainter ring. The constants live at the top of `engine.js`; there is no per-court override on purpose, so every court always feels the same.
 
 ## the page
 
@@ -62,9 +75,10 @@ Every strike, on every court, triggers the same small set: hit-stop, racket whip
 
 - builds the rally on `#court` with `teams: { left: 1, right: 1 }`, a net backdrop, serve-from-a-cat placement, and a `timeScale` that grows with the court's distance from the middle of the viewport (1 at the centre, up to 3 near the edges);
 - builds the keep-ups on `#keepups` with `teams: { solo: 1 }`, the keep-ups shot strategy, rest-at-the-top placement, and a release that fires from an `IntersectionObserver` once the square is 60 % visible;
-- wires the `+cat −cat +bird −bird` rows: cats are added to the emptier side and removed from the fuller one, within 1 to 6 per side; birds within 1 to 6.
+- builds the drill on `#drill`, in the skills section, with `teams: { left: 1, right: 1 }`, a net backdrop, the `"drill"` shot strategy, serve-from-a-cat placement, constant pace (no `timeScale`), and the same 60 % visibility release as the keep-ups;
+- wires the `+cat −cat +bird −bird` rows on all three courts: cats are added to the emptier side and removed from the fuller one, within 1 to 6 per side; birds within 1 to 6.
 
-Each canvas sits inside `div.court-frame`, which carries the border, background and a native CSS `resize: both` grip. A `ResizeObserver` in the engine re-measures the canvas, recomputes ranges and homes, and keeps the rally going through the resize. The wide frame lives in a full-bleed wrapper so it can grow past the text column.
+Each canvas sits inside `div.court-frame`, which carries the border, background and a native CSS `resize: both` grip. A `ResizeObserver` in the engine re-measures the canvas, recomputes ranges and homes, and keeps play going through the resize. The wide frame lives in a full-bleed wrapper so it can grow past the text column.
 
 ## adding a court
 
@@ -76,4 +90,4 @@ A 2v2 court is `teams: { left: 2, right: 2 }`; more birds is `birds: 3`. Nothing
 
 ## testing
 
-There is no test runner in the repo. Development used headless Chromium through Playwright to sample `courts.rally.state` and `courts.keepups.state` over time, and to record clips. Any script can reach the courts by name from `page.evaluate` because they are top-level bindings of a classic script.
+There is no test runner in the repo. Development used headless Chromium through Playwright to sample `courts.rally.state`, `courts.keepups.state` and `courts.drill.state` over time, and to record clips. Any script can reach the courts by name from `page.evaluate` because they are top-level bindings of a classic script.

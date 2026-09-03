@@ -47,7 +47,7 @@ Rules: one accent per element. Fills are rare; the cork of the shuttlecock is th
 The animations share one drawing vocabulary:
 
 - Line weight 1.6px for outlines, 1px for whiskers, round caps and joins, `--ink` colour.
-- The cat is the minimal baseline: round head, two triangle ears, two dot eyes, two whiskers per side, a rounded body, a curled tail, one arm holding a racket whose head is a `--moss` ellipse. A subtle lean while moving is the only extra cue. A big-eyed "chibi" version was tried and rejected as off-theme.
+- The cat is the minimal baseline: round head, two triangle ears, two dot eyes, two whiskers per side, a rounded body, a curled tail, one arm holding a racket whose head is a `--moss` ellipse. A subtle lean while moving, happy eye-arcs when a cat is cheering after a point, and a raised, pumped racket in one of the two cheers, are the only extra cues. A big-eyed "chibi" version was tried and rejected as off-theme.
 - The shuttlecock is a `--clay` cork with three ink feather lines. It always flies cork first.
 - The court is a `--line` floor and, for the rally, a short dashed net.
 - The pointer inside a court is a faint `--moss` ring, nothing more.
@@ -56,7 +56,9 @@ The animations share one drawing vocabulary:
 
 - The shuttlecock uses gravity plus quadratic air drag, so it leaves the racket fast and flat and then drops steeply. The rally at the middle of the page runs at a realistic pace.
 - Cats move with capped acceleration and deceleration and settle at a target; they never snap or teleport.
+- Jumps and hops obey gravity like everything else: a cat that leaves the ground rises and falls under the same acceleration as the shuttlecock. A smash is hit at the top of a small jump, not from a fixed pose.
 - Pace can change with where a court sits in the viewport (realistic at the middle, faster near the edges) but never with the pointer.
+- The cheer is short, about a second and a half, and only happens after a point ends. The racket pump is the one deliberate rhythmic motion on the site; everything else moves once, toward a target, and stops.
 - Hits get a small, identical dose of feedback on every court: a brief hit-stop, a fast racket whip, one thin expanding ring, a short stretch of the bird along its path, a slight squash of the cat, and a one-pixel kick of the whole court. Each effect lasts well under a third of a second. If it can be described as a "particle effect", it is too much.
 - `prefers-reduced-motion: reduce` renders a single still frame.
 
