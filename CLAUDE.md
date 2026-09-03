@@ -1,6 +1,6 @@
 # working on this repo
 
-A static personal site: plain HTML, one stylesheet, two classic scripts, no build step, no dependencies. Read `ARCHITECTURE.md` (how the court engine and the page fit together) and `DESIGN.md` (the look, the motion rules, the copy voice) before changing anything.
+A static personal site: plain HTML, one stylesheet, two classic scripts, no build step, no dependencies. Read `README.md` (what the files are and how to run the site), `ARCHITECTURE.md` (how the court engine and the page fit together) and `DESIGN.md` (the look, the motion rules, the copy voice) before changing anything.
 
 ## keep the docs true
 
