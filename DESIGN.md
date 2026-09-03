@@ -47,7 +47,7 @@ Rules: one accent per element. Fills are rare; the cork of the shuttlecock is th
 The animations share one drawing vocabulary:
 
 - Line weight 1.6px for outlines, 1px for whiskers, round caps and joins, `--ink` colour.
-- The cat is the minimal baseline: round head, two triangle ears, two dot eyes, two whiskers per side, a rounded body, a curled tail, one arm holding a racket whose head is a `--moss` ellipse. A subtle lean while moving, happy eye-arcs when a cat is cheering after a point, and a raised, pumped racket in one of the two cheers, are the only extra cues. A big-eyed "chibi" version was tried and rejected as off-theme.
+- The cat is the minimal baseline: round head, two triangle ears, two dot eyes, two whiskers per side, a rounded body, a curled tail, one arm holding a racket whose head is a `--moss` ellipse. A subtle lean while moving, a racket raised overhead while a cat waits to smash, happy eye-arcs when a cat is cheering after a point, and a raised, pumped racket in one of the two cheers, are the only extra cues. A big-eyed "chibi" version was tried and rejected as off-theme.
 - The shuttlecock is a `--clay` cork with three ink feather lines. It always flies cork first.
 - The court is a `--line` floor and, for the rally, a short dashed net.
 - The pointer inside a court is a faint `--moss` ring, nothing more.
