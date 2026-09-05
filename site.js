@@ -308,7 +308,7 @@ function stickDirection(offset) {
 }
 
 function wireStick(element, onChange) {
-  if (!element) return;
+  if (!element) return function () {};
   const knob = element.querySelector(".knob");
   let activeId = null;
 
@@ -323,17 +323,27 @@ function wireStick(element, onChange) {
     onChange(offset);
   }
 
-  function letGo(event) {
-    if (event.pointerId !== activeId) return;
+  function release() {
+    if (activeId === null) return;
     activeId = null;
     placeKnob(0, 0);
     onChange(null);
   }
 
+  function letGo(event) {
+    if (event.pointerId !== activeId) return;
+    release();
+  }
+
+  function holdsAnotherFinger(pointerId) {
+    if (activeId === null || activeId === pointerId) return false;
+    return element.hasPointerCapture(activeId);
+  }
+
   element.addEventListener("pointerdown", (event) => {
-    if (activeId !== null) return;
-    element.setPointerCapture(event.pointerId);
+    if (holdsAnotherFinger(event.pointerId)) return;
     activeId = event.pointerId;
+    element.setPointerCapture(event.pointerId);
     follow(event);
     event.preventDefault();
   });
@@ -343,13 +353,20 @@ function wireStick(element, onChange) {
   });
   element.addEventListener("pointerup", letGo);
   element.addEventListener("pointercancel", letGo);
+  element.addEventListener("lostpointercapture", letGo);
+  return release;
+}
+
+function selectionHasText() {
+  const selection = document.getSelection();
+  return selection !== null && !selection.isCollapsed;
 }
 
 function wirePlayerSticks(court, sticks) {
   if (!sticks) return;
   let pushedUp = false;
 
-  wireStick(sticks.querySelector('[data-stick="move"]'), (offset) => {
+  const releaseMove = wireStick(sticks.querySelector('[data-stick="move"]'), (offset) => {
     if (!offset) {
       pushedUp = false;
       court.control({ move: 0 });
@@ -362,9 +379,23 @@ function wirePlayerSticks(court, sticks) {
     pushedUp = up;
   });
 
-  wireStick(sticks.querySelector('[data-stick="shot"]'), (offset) => {
+  const releaseShot = wireStick(sticks.querySelector('[data-stick="shot"]'), (offset) => {
     const direction = stickDirection(offset);
     court.control({ shot: direction ? STICK_SHOTS[direction] : null });
+  });
+
+  function releaseBoth() {
+    releaseMove();
+    releaseShot();
+  }
+
+  sticks.addEventListener("contextmenu", (event) => event.preventDefault());
+  window.addEventListener("blur", releaseBoth);
+  document.addEventListener("visibilitychange", () => {
+    if (document.hidden) releaseBoth();
+  });
+  document.addEventListener("selectionchange", () => {
+    if (selectionHasText()) releaseBoth();
   });
 }
 
