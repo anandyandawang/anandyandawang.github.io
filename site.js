@@ -307,8 +307,10 @@ function stickDirection(offset) {
   return offset.dy < 0 ? "up" : "down";
 }
 
+function releaseNothing() {}
+
 function wireStick(element, onChange) {
-  if (!element) return function () {};
+  if (!element) return releaseNothing;
   const knob = element.querySelector(".knob");
   let activeId = null;
 

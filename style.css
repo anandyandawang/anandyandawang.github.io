@@ -330,4 +330,9 @@ footer p { margin: 0; }
   .sticks { display: none; }
   .court-hint.keys { display: block; }
   .court-hint.touch { display: none; }
+  .play-wrap {
+    -webkit-user-select: auto;
+    user-select: auto;
+    -webkit-touch-callout: default;
+  }
 }
