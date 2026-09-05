@@ -15,6 +15,17 @@ const MATCH_SPEED = 1.6;
 const MATCH_ACCEL = 2;
 const SCORE_TOP = 12;
 const SCORE_SIZE = 14;
+const STICK_RADIUS = 30;
+const STICK_DEADZONE = 12;
+const SHOT_KEYS = {
+  ArrowLeft: "drop",
+  ArrowUp: "clear",
+  ArrowRight: "drive",
+  ArrowDown: "smash",
+};
+const STICK_SHOTS = { left: "drop", up: "clear", right: "drive", down: "smash" };
+const WALK_KEYS = { KeyA: -1, KeyD: 1 };
+const JUMP_KEY = "KeyW";
 
 function racketLine(state) {
   return state.height - GROUND_MARGIN - RACKET_HEIGHT;
@@ -75,18 +86,24 @@ function restingBird(state) {
   return { x: state.width / 2, y: REST_HEIGHT, vx: 0, vy: 0, hold: REST_PAUSE };
 }
 
+function serveFrom(state, cat) {
+  return {
+    x: cat.x + cat.facing * RACKET_OFFSET_X,
+    y: racketLine(state),
+    vx: 0,
+    vy: 0,
+    holder: cat,
+  };
+}
+
 function matchServe(state) {
   const server = state.score.server;
   for (let i = 0; i < state.cats.length; i += 1) {
     const cat = state.cats[i];
     if (cat.side !== server) continue;
-    return {
-      x: cat.x + cat.facing * RACKET_OFFSET_X,
-      y: racketLine(state),
-      vx: 0,
-      vy: 0,
-    };
+    return serveFrom(state, cat);
   }
+  if (state.player) return serveFrom(state, state.player);
   return serveBird(state);
 }
 
@@ -94,6 +111,7 @@ const courtCanvas = document.getElementById("court");
 const keepUpsCanvas = document.getElementById("keepups");
 const drillCanvas = document.getElementById("drill");
 const matchCanvas = document.getElementById("match");
+const playCanvas = document.getElementById("play");
 
 const rally = createCourt(courtCanvas, {
   teams: { left: 1, right: 1 },
@@ -131,7 +149,19 @@ const match = createCourt(matchCanvas, {
   releaseOnStart: false,
 });
 
-const courts = { rally, keepups, drill, match };
+const play = createCourt(playCanvas, {
+  teams: { left: 1, right: 1 },
+  birds: 1,
+  chooseShot: "match",
+  player: "left",
+  pointer: false,
+  movement: { speed: MATCH_SPEED, accel: MATCH_ACCEL },
+  drawBackdrop: drawScoreboard,
+  initialBird: matchServe,
+  releaseOnStart: false,
+});
+
+const courts = { rally, keepups, drill, match, play };
 
 function sideToFill(teams) {
   if (teams.solo > 0) return teams.solo < MAX_PER_SIDE ? "solo" : null;
@@ -145,6 +175,14 @@ function sideToDrain(teams) {
   return teams[side] > MIN_PER_SIDE ? side : null;
 }
 
+function addBirdTo(court) {
+  if (court.state.birds.length < MAX_BIRDS) court.addBird();
+}
+
+function removeBirdFrom(court) {
+  if (court.state.birds.length > MIN_BIRDS) court.removeBird();
+}
+
 const courtActions = {
   "add-cat": (court) => {
     const side = sideToFill(court.state.teams);
@@ -154,30 +192,173 @@ const courtActions = {
     const side = sideToDrain(court.state.teams);
     if (side) court.removeCat(side);
   },
-  "add-bird": (court) => {
-    if (court.state.birds.length < MAX_BIRDS) court.addBird();
-  },
-  "remove-bird": (court) => {
-    if (court.state.birds.length > MIN_BIRDS) court.removeBird();
-  },
+  "add-bird": addBirdTo,
+  "remove-bird": removeBirdFrom,
 };
 
-function wireControls(court, row) {
+const opponentActions = {
+  "add-cat": (court) => {
+    if (court.state.teams.right < MAX_PER_SIDE) court.addCat("right");
+  },
+  "remove-cat": (court) => {
+    if (court.state.teams.right > MIN_PER_SIDE) court.removeCat("right");
+  },
+  "add-bird": addBirdTo,
+  "remove-bird": removeBirdFrom,
+};
+
+function wireControls(court, row, actions) {
   if (!row) return;
   row.addEventListener("click", (event) => {
     const button = event.target.closest("button[data-action]");
     if (!button) return;
-    const act = courtActions[button.dataset.action];
+    const act = actions[button.dataset.action];
     if (!act) return;
     act(court);
     if (reducedMotion) court.render();
   });
 }
 
-wireControls(rally, document.querySelector('[data-controls="rally"]'));
-wireControls(keepups, document.querySelector('[data-controls="keepups"]'));
-wireControls(drill, document.querySelector('[data-controls="drill"]'));
-wireControls(match, document.querySelector('[data-controls="match"]'));
+wireControls(rally, document.querySelector('[data-controls="rally"]'), courtActions);
+wireControls(keepups, document.querySelector('[data-controls="keepups"]'), courtActions);
+wireControls(drill, document.querySelector('[data-controls="drill"]'), courtActions);
+wireControls(match, document.querySelector('[data-controls="match"]'), courtActions);
+wireControls(play, document.querySelector('[data-controls="play"]'), opponentActions);
+
+function shotForKey(code) {
+  const shot = SHOT_KEYS[code];
+  return typeof shot === "string" ? shot : null;
+}
+
+function wirePlayerKeys(court, canvas) {
+  const walking = { KeyA: false, KeyD: false };
+  const loaded = [];
+
+  function sendMove() {
+    let move = 0;
+    if (walking.KeyD) move += WALK_KEYS.KeyD;
+    if (walking.KeyA) move += WALK_KEYS.KeyA;
+    court.control({ move });
+  }
+
+  function sendShot() {
+    const code = loaded.length > 0 ? loaded[loaded.length - 1] : null;
+    court.control({ shot: code ? shotForKey(code) : null });
+  }
+
+  canvas.addEventListener("keydown", (event) => {
+    const code = event.code;
+    if (typeof WALK_KEYS[code] === "number") {
+      walking[code] = true;
+      sendMove();
+    } else if (code === JUMP_KEY) {
+      if (!event.repeat) court.control({ jump: true });
+    } else if (shotForKey(code)) {
+      if (loaded.indexOf(code) < 0) loaded.push(code);
+      sendShot();
+    } else {
+      return;
+    }
+    event.preventDefault();
+  });
+
+  canvas.addEventListener("keyup", (event) => {
+    const code = event.code;
+    if (typeof WALK_KEYS[code] === "number") {
+      walking[code] = false;
+      sendMove();
+    } else if (shotForKey(code)) {
+      const at = loaded.indexOf(code);
+      if (at >= 0) loaded.splice(at, 1);
+      sendShot();
+    } else {
+      return;
+    }
+    event.preventDefault();
+  });
+
+  canvas.addEventListener("blur", () => {
+    walking.KeyA = false;
+    walking.KeyD = false;
+    loaded.length = 0;
+    court.control({ move: 0, shot: null });
+  });
+}
+
+function stickOffset(element, event) {
+  const rect = element.getBoundingClientRect();
+  const dx = event.clientX - (rect.left + rect.width / 2);
+  const dy = event.clientY - (rect.top + rect.height / 2);
+  const length = Math.sqrt(dx * dx + dy * dy);
+  if (length <= STICK_RADIUS) return { dx, dy };
+  return { dx: (dx / length) * STICK_RADIUS, dy: (dy / length) * STICK_RADIUS };
+}
+
+function stickDirection(offset) {
+  if (!offset) return null;
+  if (Math.sqrt(offset.dx * offset.dx + offset.dy * offset.dy) <= STICK_DEADZONE) return null;
+  if (Math.abs(offset.dx) >= Math.abs(offset.dy)) return offset.dx < 0 ? "left" : "right";
+  return offset.dy < 0 ? "up" : "down";
+}
+
+function wireStick(element, onChange) {
+  if (!element) return;
+  const knob = element.querySelector(".knob");
+
+  function placeKnob(dx, dy) {
+    knob.style.setProperty("--dx", dx + "px");
+    knob.style.setProperty("--dy", dy + "px");
+  }
+
+  function follow(event) {
+    const offset = stickOffset(element, event);
+    placeKnob(offset.dx, offset.dy);
+    onChange(offset);
+  }
+
+  function letGo() {
+    placeKnob(0, 0);
+    onChange(null);
+  }
+
+  element.addEventListener("pointerdown", (event) => {
+    element.setPointerCapture(event.pointerId);
+    follow(event);
+    event.preventDefault();
+  });
+  element.addEventListener("pointermove", (event) => {
+    if (!element.hasPointerCapture(event.pointerId)) return;
+    follow(event);
+  });
+  element.addEventListener("pointerup", letGo);
+  element.addEventListener("pointercancel", letGo);
+}
+
+function wirePlayerSticks(court, sticks) {
+  if (!sticks) return;
+  let pushedUp = false;
+
+  wireStick(sticks.querySelector('[data-stick="move"]'), (offset) => {
+    if (!offset) {
+      pushedUp = false;
+      court.control({ move: 0 });
+      return;
+    }
+    const move = Math.abs(offset.dx) > STICK_DEADZONE ? Math.sign(offset.dx) : 0;
+    const up = offset.dy < -STICK_DEADZONE;
+    if (up && !pushedUp) court.control({ move, jump: true });
+    else court.control({ move });
+    pushedUp = up;
+  });
+
+  wireStick(sticks.querySelector('[data-stick="shot"]'), (offset) => {
+    const direction = stickDirection(offset);
+    court.control({ shot: direction ? STICK_SHOTS[direction] : null });
+  });
+}
+
+wirePlayerKeys(play, playCanvas);
+wirePlayerSticks(play, document.querySelector('[data-sticks="play"]'));
 
 function watchForRelease(court, element) {
   const watcher = new IntersectionObserver((entries) => {
@@ -202,12 +383,15 @@ if (reducedMotion) {
   keepups.render();
   drill.render();
   match.render();
+  play.render();
 } else {
   rally.start();
   keepups.start();
   drill.start();
   match.start();
+  play.start();
   watchForRelease(keepups, keepUpsCanvas);
   watchForRelease(drill, drillCanvas);
   watchForRelease(match, matchCanvas);
+  watchForRelease(play, playCanvas);
 }

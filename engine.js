@@ -110,6 +110,15 @@ const MATCH_FRONT_CLEAR = 0.6;
 const MATCH_MIX_DRIVE = 0.55;
 const MATCH_MIX_DROP = 0.25;
 
+const PLAYER_SHOTS = ["clear", "drop", "drive", "smash"];
+const READY_ANGLES = {
+  clear: -0.8,
+  drive: RACKET_REST_ANGLE,
+  drop: -0.2,
+  smash: OVERHEAD_ANGLE,
+};
+const IDLE_RACKET_ANGLE = 0.2;
+
 const POINTER_RADIUS = 22;
 const KNOCK_SPEED = 260;
 const RESPAWN_DELAY = 0.6;
@@ -706,6 +715,16 @@ function matchShot(court, cat, bird) {
   return matchDrive(court, cat, opponents);
 }
 
+function playerShot(court, cat) {
+  const opponents = opposingCats(court, cat);
+  const wanted = cat.input.shot;
+  if (wanted === "smash") return matchSmash(court, cat, opponents);
+  if (wanted === "clear") return matchClear(court, cat);
+  if (wanted === "drive") return matchDrive(court, cat, opponents);
+  if (depthOf(court, cat) <= MATCH_NET_ZONE) return matchNetShot(court, cat, opponents);
+  return matchDrop(court, cat, opponents);
+}
+
 function smashOn(court, cat, bird) {
   if (cat.rise > 0) return true;
   const height = court.groundY() - OVERHEAD_HEIGHT - JUMP_HEIGHT;
@@ -756,13 +775,20 @@ function drawGround(ctx, state, colors) {
   ctx.stroke();
 }
 
+function restRacketAngle(cat) {
+  if (cat.input) {
+    return cat.input.shot === null ? IDLE_RACKET_ANGLE : READY_ANGLES[cat.input.shot];
+  }
+  return cat.stance === "overhead" ? OVERHEAD_ANGLE : RACKET_REST_ANGLE;
+}
+
 function drawCat(ctx, cat, ground, colors, state) {
   const swing = Math.pow(cat.swing, SWING_SNAP);
   const recoil = decay(progress(cat.recoilElapsed, RECOIL_DURATION));
   const cheering = isCheering(state, cat);
   const pumping = cheering && cat.cheer === "pump";
   const pump = pumping ? (1 - Math.cos(state.simTime * PUMP_RATE * Math.PI * 2)) / 2 : 0;
-  const restAngle = cat.stance === "overhead" ? OVERHEAD_ANGLE : RACKET_REST_ANGLE;
+  const restAngle = restRacketAngle(cat);
   const racketAngle = pumping
     ? OVERHEAD_ANGLE + PUMP_SWING * pump
     : restAngle + (cat.swingFrom - restAngle) * swing;
@@ -885,12 +911,15 @@ function createCourt(canvas, options) {
   const movement = settings.movement || {};
   const speedFactor = typeof movement.speed === "number" ? movement.speed : 1;
   const accelFactor = typeof movement.accel === "number" ? movement.accel : 1;
+  const playerSide = settings.player === "left" || settings.player === "right" ? settings.player : null;
+  const pointerEnabled = settings.pointer !== false;
 
   const state = {
     width: 0,
     height: 0,
     pointer: null,
     cats: [],
+    player: null,
     birds: [],
     teams: { left: 0, right: 0, solo: 0 },
     movement: { maxSpeed: CAT_MAX_SPEED * speedFactor, accel: CAT_ACCEL * accelFactor },
@@ -975,9 +1004,35 @@ function createCourt(canvas, options) {
       swingElapsed: SWING_DURATION,
       recoilElapsed: RECOIL_DURATION,
       receiving: null,
+      input: null,
     };
     if (spec.facing === 1 || spec.facing === -1) cat.facing = spec.facing;
     return cat;
+  }
+
+  function isPlayer(cat) {
+    return cat.input !== null;
+  }
+
+  function claimPlayer() {
+    if (playerSide === null) return;
+    for (let i = 0; i < state.cats.length; i += 1) {
+      const cat = state.cats[i];
+      if (cat.side !== playerSide) continue;
+      cat.input = { move: 0, jump: false, shot: null };
+      state.player = cat;
+      return;
+    }
+  }
+
+  function control(input) {
+    if (!state.player) return null;
+    const wanted = input || {};
+    const held = state.player.input;
+    if (typeof wanted.move === "number") held.move = Math.sign(wanted.move) || 0;
+    if (wanted.jump === true) held.jump = true;
+    if (wanted.shot === null || PLAYER_SHOTS.indexOf(wanted.shot) >= 0) held.shot = wanted.shot;
+    return held;
   }
 
   function placeCat(cat) {
@@ -1031,11 +1086,13 @@ function createCourt(canvas, options) {
     const wanted = side || crowdedSide();
     for (let i = state.cats.length - 1; i >= 0; i -= 1) {
       if (state.cats[i].side !== wanted) continue;
+      if (state.cats[i] === state.player) continue;
       const gone = state.cats.splice(i, 1)[0];
       for (let b = 0; b < state.birds.length; b += 1) {
         if (state.birds[b].receiver === gone) state.birds[b].receiver = null;
         if (state.birds[b].keeper === gone) state.birds[b].keeper = null;
         if (state.birds[b].striker === gone) state.birds[b].striker = null;
+        if (state.birds[b].holder === gone) state.birds[b].holder = null;
       }
       layoutCats();
       return gone;
@@ -1049,7 +1106,9 @@ function createCourt(canvas, options) {
       const wanted = counts[side];
       if (typeof wanted !== "number") continue;
       while (state.teams[side] < wanted) addCat(side);
-      while (state.teams[side] > wanted) removeCat(side);
+      while (state.teams[side] > wanted) {
+        if (!removeCat(side)) break;
+      }
     }
     return state.teams;
   }
@@ -1133,6 +1192,7 @@ function createCourt(canvas, options) {
       receiver: null,
       keeper: null,
       striker: null,
+      holder: null,
     };
   }
 
@@ -1164,6 +1224,7 @@ function createCourt(canvas, options) {
     bird.crossing = null;
     bird.receiver = null;
     bird.keeper = null;
+    bird.holder = placement.holder || null;
     bird.inPlay = true;
     return bird;
   }
@@ -1231,8 +1292,22 @@ function createCourt(canvas, options) {
     return gone;
   }
 
+  function heldByPlayer(bird) {
+    return bird.holder !== null && bird.holder.input !== null && bird.holder.input.shot === null;
+  }
+
   function isHeld(bird) {
-    return state.simTime < bird.holdUntil || state.simTime < state.gate;
+    if (state.simTime < bird.holdUntil || state.simTime < state.gate) return true;
+    return heldByPlayer(bird);
+  }
+
+  function pinToHolder(bird) {
+    if (!bird.holder) return;
+    const point = racketPoint(bird.holder);
+    bird.x = point.x;
+    bird.y = point.y;
+    bird.vx = 0;
+    bird.vy = 0;
   }
 
   function addRing(x, y, minRadius, maxRadius, alpha) {
@@ -1243,9 +1318,10 @@ function createCourt(canvas, options) {
 
   function strike(cat, bird) {
     const origin = reachPoint(cat);
-    const shot = chooseShot(court, cat, bird);
+    const shot = isPlayer(cat) ? playerShot(court, cat) : chooseShot(court, cat, bird);
     const range = catRange(cat);
     bird.strikes += 1;
+    bird.holder = null;
     bird.shot = typeof shot.kind === "string" ? shot.kind : null;
     cat.swingFrom = cat.stance === "overhead" ? SMASH_FOLLOW_THROUGH : RACKET_REST_ANGLE - SWING_ARC;
     cat.post = typeof shot.post === "number" ? clamp(shot.post, range.min, range.max) : null;
@@ -1332,18 +1408,19 @@ function createCourt(canvas, options) {
     applyStances();
   }
 
+  function stanceFor(cat) {
+    if (isPlayer(cat)) return cat.input.shot === "smash" ? "overhead" : "ground";
+    if (!cat.receiving) return "ground";
+    return chooseStance(court, cat, cat.receiving) === "overhead" ? "overhead" : "ground";
+  }
+
   function applyStances() {
     for (let i = 0; i < state.cats.length; i += 1) {
       const cat = state.cats[i];
-      if (!cat.receiving) {
-        cat.stance = "ground";
-        continue;
-      }
-      const bird = cat.receiving;
-      cat.stance = chooseStance(court, cat, bird) === "overhead" ? "overhead" : "ground";
-      if (cat.stance !== "overhead") continue;
-      const raised = predictCrossingAt(bird, reachHeightFor(cat));
-      if (raised) bird.crossing = raised;
+      cat.stance = stanceFor(cat);
+      if (cat.stance !== "overhead" || !cat.receiving) continue;
+      const raised = predictCrossingAt(cat.receiving, reachHeightFor(cat));
+      if (raised) cat.receiving.crossing = raised;
     }
   }
 
@@ -1370,10 +1447,19 @@ function createCourt(canvas, options) {
     }
   }
 
+  function playerTarget(cat) {
+    if (isCheering(state, cat)) return cat.x;
+    const range = catRange(cat);
+    if (cat.input.move > 0) return range.max;
+    if (cat.input.move < 0) return range.min;
+    return cat.x;
+  }
+
   function aimCats() {
     for (let i = 0; i < state.cats.length; i += 1) {
       const cat = state.cats[i];
-      if (cat.receiving) cat.target = racketTargetFor(cat, cat.receiving.crossing.x);
+      if (isPlayer(cat)) cat.target = playerTarget(cat);
+      else if (cat.receiving) cat.target = racketTargetFor(cat, cat.receiving.crossing.x);
       else if (isCheering(state, cat)) cat.target = cat.x;
       else if (cat.post !== null) cat.target = cat.post;
       else cat.target = cat.home;
@@ -1381,6 +1467,8 @@ function createCourt(canvas, options) {
   }
 
   function byPriority(a, b) {
+    const driven = (isPlayer(a) ? 0 : 1) - (isPlayer(b) ? 0 : 1);
+    if (driven !== 0) return driven;
     const claimed = (a.receiving ? 0 : 1) - (b.receiving ? 0 : 1);
     if (claimed !== 0) return claimed;
     return a.index - b.index;
@@ -1469,12 +1557,24 @@ function createCourt(canvas, options) {
   }
 
   function wantsJump(cat) {
+    if (isPlayer(cat)) return false;
     if (cat.stance !== "overhead" || !cat.receiving) return false;
     if (cat.receiving.crossing.time > JUMP_RISE_TIME) return false;
     return Math.abs(cat.target - cat.x) <= JUMP_ALIGNMENT;
   }
 
+  function requestJump(cat) {
+    if (cat.input === null || !cat.input.jump) return false;
+    cat.input.jump = false;
+    if (cat.rise > 0 || cat.riseSpeed !== 0) return false;
+    if (cat.cheer === "hop" && isCheering(state, cat)) return false;
+    cat.riseSpeed = JUMP_SPEED;
+    cat.groundedFor = 0;
+    return true;
+  }
+
   function raiseCat(cat, dt) {
+    if (requestJump(cat)) return;
     if (cat.rise > 0 || cat.riseSpeed !== 0) {
       cat.riseSpeed -= GRAVITY * dt;
       cat.rise += cat.riseSpeed * dt;
@@ -1555,6 +1655,10 @@ function createCourt(canvas, options) {
     bird.vx = away * Math.max(Math.abs(bird.vx), KNOCK_SPEED);
   }
 
+  function loaded(cat) {
+    return cat.input === null || cat.input.shot !== null;
+  }
+
   function tryStrikes(bird) {
     const descending = bird.vy > 0;
     for (let i = 0; i < state.cats.length; i += 1) {
@@ -1564,7 +1668,7 @@ function createCourt(canvas, options) {
         if (bird.striker === cat) bird.striker = null;
         continue;
       }
-      if (!descending || bird.striker === cat) continue;
+      if (!descending || bird.striker === cat || !loaded(cat)) continue;
       strike(cat, bird);
       return;
     }
@@ -1609,7 +1713,11 @@ function createCourt(canvas, options) {
         if (state.simTime >= bird.respawnAt) serve(bird);
         continue;
       }
-      if (isHeld(bird)) continue;
+      if (isHeld(bird)) {
+        pinToHolder(bird);
+        continue;
+      }
+      bird.holder = null;
       const impact = advanceBird(bird, dt, bounds);
       if (impact) {
         addRing(
@@ -1734,6 +1842,7 @@ function createCourt(canvas, options) {
     start,
     stop,
     release,
+    control,
     groundY,
     racketY,
     racketPoint,
@@ -1768,6 +1877,7 @@ function createCourt(canvas, options) {
       state.cats[i].x = state.cats[i].home;
       state.cats[i].target = state.cats[i].home;
     }
+    claimPlayer();
   }
 
   resize();
@@ -1776,10 +1886,12 @@ function createCourt(canvas, options) {
   const wanted = typeof settings.birds === "number" ? settings.birds : 1;
   for (let i = 0; i < wanted; i += 1) addBird();
 
-  canvas.addEventListener("pointermove", trackPointer, { passive: true });
-  canvas.addEventListener("pointerdown", trackPointer, { passive: true });
-  canvas.addEventListener("pointerleave", forgetPointer);
-  canvas.addEventListener("pointercancel", forgetPointer);
+  if (pointerEnabled) {
+    canvas.addEventListener("pointermove", trackPointer, { passive: true });
+    canvas.addEventListener("pointerdown", trackPointer, { passive: true });
+    canvas.addEventListener("pointerleave", forgetPointer);
+    canvas.addEventListener("pointercancel", forgetPointer);
+  }
   if (typeof ResizeObserver === "function") new ResizeObserver(resize).observe(canvas);
   else window.addEventListener("resize", resize);
 

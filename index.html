@@ -135,6 +135,25 @@
           </a>
         </li>
       </ul>
+      <div class="court-wrap play-wrap" aria-label="a match you play against a cat">
+        <div class="court-bleed">
+          <div class="court-frame wide">
+            <canvas id="play" tabindex="0" aria-label="a badminton court. you are the left cat"></canvas>
+          </div>
+        </div>
+        <p class="court-hint keys">you are the left cat. click the court, then a and d to move, w to jump, and the arrows to load a shot: left drop, up clear, right drive, down smash. first to twenty-one.</p>
+        <p class="court-hint touch">you are the left cat. the left stick moves and jumps, the right stick loads a shot: left drop, up clear, right drive, down smash. first to twenty-one.</p>
+        <div class="sticks" data-sticks="play" aria-hidden="true">
+          <div class="stick" data-stick="move"><span class="knob"></span></div>
+          <div class="stick" data-stick="shot"><span class="knob"></span></div>
+        </div>
+        <div class="court-controls" data-controls="play">
+          <button type="button" data-action="add-cat" aria-label="add a cat">+cat</button>
+          <button type="button" data-action="remove-cat" aria-label="remove a cat">&#8722;cat</button>
+          <button type="button" data-action="add-bird" aria-label="add a shuttlecock">+bird</button>
+          <button type="button" data-action="remove-bird" aria-label="remove a shuttlecock">&#8722;bird</button>
+        </div>
+      </div>
     </section>
 
     <section id="skills" class="block">
