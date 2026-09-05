@@ -146,6 +146,7 @@ h1 {
 }
 .court-frame:focus-within { border-color: var(--sage); }
 .court-frame canvas:focus { outline: none; }
+.play-wrap .court-frame { cursor: default; }
 .court-frame.wide {
   width: min(100%, calc(var(--max) - 2.5rem));
   height: 180px;
@@ -321,4 +322,7 @@ footer p { margin: 0; }
   html { scroll-behavior: auto; }
   .sleeping-cat .eyes { animation: none; }
   .cards a { transition: none; }
+  .sticks { display: none; }
+  .court-hint.keys { display: block; }
+  .court-hint.touch { display: none; }
 }

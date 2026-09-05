@@ -24,8 +24,9 @@ const SHOT_KEYS = {
   ArrowDown: "smash",
 };
 const STICK_SHOTS = { left: "drop", up: "clear", right: "drive", down: "smash" };
+const OTHER_SIDE = { left: "right", right: "left" };
 const WALK_KEYS = { KeyA: -1, KeyD: 1 };
-const JUMP_KEY = "KeyW";
+const JUMP_KEYS = { KeyW: true, Space: true };
 
 function racketLine(state) {
   return state.height - GROUND_MARGIN - RACKET_HEIGHT;
@@ -96,14 +97,19 @@ function serveFrom(state, cat) {
   };
 }
 
-function matchServe(state) {
-  const server = state.score.server;
+function freeServer(state, side) {
   for (let i = 0; i < state.cats.length; i += 1) {
     const cat = state.cats[i];
-    if (cat.side !== server) continue;
-    return serveFrom(state, cat);
+    if (cat.side !== side || holdsBird(state, cat)) continue;
+    return cat;
   }
-  if (state.player) return serveFrom(state, state.player);
+  return null;
+}
+
+function matchServe(state) {
+  const side = state.score.server || (state.player ? state.player.side : null);
+  const server = freeServer(state, side) || freeServer(state, OTHER_SIDE[side]);
+  if (server) return serveFrom(state, server);
   return serveBird(state);
 }
 
@@ -251,7 +257,7 @@ function wirePlayerKeys(court, canvas) {
     if (typeof WALK_KEYS[code] === "number") {
       walking[code] = true;
       sendMove();
-    } else if (code === JUMP_KEY) {
+    } else if (JUMP_KEYS[code]) {
       if (!event.repeat) court.control({ jump: true });
     } else if (shotForKey(code)) {
       if (loaded.indexOf(code) < 0) loaded.push(code);
@@ -271,7 +277,7 @@ function wirePlayerKeys(court, canvas) {
       const at = loaded.indexOf(code);
       if (at >= 0) loaded.splice(at, 1);
       sendShot();
-    } else {
+    } else if (!JUMP_KEYS[code]) {
       return;
     }
     event.preventDefault();
@@ -304,6 +310,7 @@ function stickDirection(offset) {
 function wireStick(element, onChange) {
   if (!element) return;
   const knob = element.querySelector(".knob");
+  let activeId = null;
 
   function placeKnob(dx, dy) {
     knob.style.setProperty("--dx", dx + "px");
@@ -316,18 +323,22 @@ function wireStick(element, onChange) {
     onChange(offset);
   }
 
-  function letGo() {
+  function letGo(event) {
+    if (event.pointerId !== activeId) return;
+    activeId = null;
     placeKnob(0, 0);
     onChange(null);
   }
 
   element.addEventListener("pointerdown", (event) => {
+    if (activeId !== null) return;
     element.setPointerCapture(event.pointerId);
+    activeId = event.pointerId;
     follow(event);
     event.preventDefault();
   });
   element.addEventListener("pointermove", (event) => {
-    if (!element.hasPointerCapture(event.pointerId)) return;
+    if (event.pointerId !== activeId) return;
     follow(event);
   });
   element.addEventListener("pointerup", letGo);
@@ -357,8 +368,10 @@ function wirePlayerSticks(court, sticks) {
   });
 }
 
-wirePlayerKeys(play, playCanvas);
-wirePlayerSticks(play, document.querySelector('[data-sticks="play"]'));
+if (!reducedMotion) {
+  wirePlayerKeys(play, playCanvas);
+  wirePlayerSticks(play, document.querySelector('[data-sticks="play"]'));
+}
 
 function watchForRelease(court, element) {
   const watcher = new IntersectionObserver((entries) => {

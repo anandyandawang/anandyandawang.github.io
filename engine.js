@@ -775,8 +775,17 @@ function drawGround(ctx, state, colors) {
   ctx.stroke();
 }
 
-function restRacketAngle(cat) {
+function holdsBird(state, cat) {
+  for (let i = 0; i < state.birds.length; i += 1) {
+    const bird = state.birds[i];
+    if (bird.inPlay && bird.holder === cat) return true;
+  }
+  return false;
+}
+
+function restRacketAngle(cat, state) {
   if (cat.input) {
+    if (holdsBird(state, cat)) return RACKET_REST_ANGLE;
     return cat.input.shot === null ? IDLE_RACKET_ANGLE : READY_ANGLES[cat.input.shot];
   }
   return cat.stance === "overhead" ? OVERHEAD_ANGLE : RACKET_REST_ANGLE;
@@ -788,7 +797,7 @@ function drawCat(ctx, cat, ground, colors, state) {
   const cheering = isCheering(state, cat);
   const pumping = cheering && cat.cheer === "pump";
   const pump = pumping ? (1 - Math.cos(state.simTime * PUMP_RATE * Math.PI * 2)) / 2 : 0;
-  const restAngle = restRacketAngle(cat);
+  const restAngle = restRacketAngle(cat, state);
   const racketAngle = pumping
     ? OVERHEAD_ANGLE + PUMP_SWING * pump
     : restAngle + (cat.swingFrom - restAngle) * swing;
@@ -1293,7 +1302,7 @@ function createCourt(canvas, options) {
   }
 
   function heldByPlayer(bird) {
-    return bird.holder !== null && bird.holder.input !== null && bird.holder.input.shot === null;
+    return bird.holder !== null && !loaded(bird.holder);
   }
 
   function isHeld(bird) {
@@ -1303,7 +1312,7 @@ function createCourt(canvas, options) {
 
   function pinToHolder(bird) {
     if (!bird.holder) return;
-    const point = racketPoint(bird.holder);
+    const point = reachPoint(bird.holder);
     bird.x = point.x;
     bird.y = point.y;
     bird.vx = 0;
@@ -1564,7 +1573,7 @@ function createCourt(canvas, options) {
   }
 
   function requestJump(cat) {
-    if (cat.input === null || !cat.input.jump) return false;
+    if (!isPlayer(cat) || !cat.input.jump) return false;
     cat.input.jump = false;
     if (cat.rise > 0 || cat.riseSpeed !== 0) return false;
     if (cat.cheer === "hop" && isCheering(state, cat)) return false;
@@ -1656,7 +1665,7 @@ function createCourt(canvas, options) {
   }
 
   function loaded(cat) {
-    return cat.input === null || cat.input.shot !== null;
+    return !isPlayer(cat) || cat.input.shot !== null;
   }
 
   function tryStrikes(bird) {
