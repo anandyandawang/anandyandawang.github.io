@@ -76,6 +76,40 @@ const NET_MIN_DEPTH = 0.15;
 const NET_MAX_DEPTH = 0.4;
 const NET_POST = 0.5;
 
+const GAME_POINTS = 21;
+const MATCH_SMASH_TILTS = [-40, -34, -28, -22, -16, -10, -6];
+const MATCH_SMASH_MAX_SPEED = 1800;
+const MATCH_SMASH_INSET = 0.08;
+const MATCH_SMASH_POST = 0.35;
+const MATCH_DRIVE_TILTS = [15, 18, 21, 25];
+const MATCH_DRIVE_MAX_SPEED = 1500;
+const MATCH_DRIVE_POST = 0.5;
+const MATCH_CLEAR_FLOOR_DEPTH = 0.35;
+const MATCH_CLEAR_MIN_DEPTH = 0.7;
+const MATCH_CLEAR_MAX_DEPTH = 0.9;
+const MATCH_CLEAR_POST = 0.7;
+const MATCH_DROP_TILTS = [30, 35, 40, 45, 50];
+const MATCH_DROP_FLOOR_DEPTH = 0;
+const MATCH_DROP_APEX = 0.4;
+const MATCH_DROP_MIN_DEPTH = 0.1;
+const MATCH_DROP_MAX_DEPTH = 0.3;
+const MATCH_DROP_POST = 0.35;
+const MATCH_NET_FLOOR_DEPTH = 0;
+const MATCH_NET_MIN_DEPTH = 0.05;
+const MATCH_NET_MAX_DEPTH = 0.2;
+const MATCH_NET_POST = 0.35;
+const MATCH_BEHIND_GAP = 75;
+const MATCH_BACK_MARGIN = 14;
+const MATCH_NET_ZONE = 0.5;
+const MATCH_FRONT_DEPTH = 0.35;
+const MATCH_DEEP_DEPTH = 0.55;
+const MATCH_DEFEND_CLEAR = 0.7;
+const MATCH_NET_CHANCE = 0.75;
+const MATCH_DEEP_DROP = 0.6;
+const MATCH_FRONT_CLEAR = 0.6;
+const MATCH_MIX_DRIVE = 0.55;
+const MATCH_MIX_DROP = 0.25;
+
 const POINTER_RADIUS = 22;
 const KNOCK_SPEED = 260;
 const RESPAWN_DELAY = 0.6;
@@ -136,6 +170,7 @@ function palette() {
   const styles = getComputedStyle(document.documentElement);
   return {
     ink: styles.getPropertyValue("--ink").trim(),
+    inkSoft: styles.getPropertyValue("--ink-soft").trim(),
     moss: styles.getPropertyValue("--moss").trim(),
     clay: styles.getPropertyValue("--clay").trim(),
     line: styles.getPropertyValue("--line").trim(),
@@ -436,6 +471,255 @@ function drillStance(court, cat, bird) {
   return drillKindFor(bird) === "smash" ? "overhead" : "ground";
 }
 
+function opposingCats(court, cat) {
+  const wanted = cat.side === "left" ? "right" : "left";
+  const cats = court.state.cats;
+  const found = [];
+  for (let i = 0; i < cats.length; i += 1) {
+    if (cats[i].side === wanted) found.push(cats[i]);
+  }
+  if (found.length === 0) found.push(court.opponentOf(cat));
+  return found;
+}
+
+function guardXs(opponents) {
+  const guards = [];
+  for (let i = 0; i < opponents.length; i += 1) {
+    guards.push(opponents[i].x + opponents[i].facing * RACKET_OFFSET_X);
+  }
+  return guards.sort((a, b) => a - b);
+}
+
+function gapFromGuards(x, guards) {
+  let nearest = Infinity;
+  for (let i = 0; i < guards.length; i += 1) {
+    const distance = Math.abs(x - guards[i]);
+    if (distance < nearest) nearest = distance;
+  }
+  return nearest;
+}
+
+function openCorner(strip, opponents) {
+  const guards = guardXs(opponents);
+  const candidates = [strip.min, strip.max];
+  for (let i = 1; i < guards.length; i += 1) {
+    candidates.push(clamp((guards[i - 1] + guards[i]) / 2, strip.min, strip.max));
+  }
+  let best = candidates[0];
+  let bestGap = -Infinity;
+  for (let i = 0; i < candidates.length; i += 1) {
+    const gap = gapFromGuards(candidates[i], guards);
+    if (gap > bestGap) {
+      bestGap = gap;
+      best = candidates[i];
+    }
+  }
+  return best;
+}
+
+function deepestGuard(guards, facing) {
+  let deepest = guards[0];
+  for (let i = 1; i < guards.length; i += 1) {
+    const farther = facing > 0 ? guards[i] < deepest : guards[i] > deepest;
+    if (farther) deepest = guards[i];
+  }
+  return deepest;
+}
+
+function behindGuards(court, guards, facing) {
+  const away = facing > 0 ? -1 : 1;
+  const edge = away > 0 ? court.state.width - MATCH_BACK_MARGIN : MATCH_BACK_MARGIN;
+  const wanted = deepestGuard(guards, facing) + away * MATCH_BEHIND_GAP;
+  return away > 0 ? Math.min(wanted, edge) : Math.max(wanted, edge);
+}
+
+function attackCorner(court, strip, opponents) {
+  const guards = guardXs(opponents);
+  const behind = behindGuards(court, guards, opponents[0].facing);
+  const corner = openCorner(strip, opponents);
+  return gapFromGuards(behind, guards) > gapFromGuards(corner, guards) ? behind : corner;
+}
+
+function insetFromEnd(strip, x, fraction) {
+  if (x !== strip.min && x !== strip.max) return x;
+  const middle = (strip.min + strip.max) / 2;
+  return x + Math.sign(middle - x) * (strip.max - strip.min) * fraction;
+}
+
+function bandTarget(far, opponents, minDepth, maxDepth) {
+  const near = depthX(far.strip, far.facing, minDepth);
+  const deep = depthX(far.strip, far.facing, maxDepth);
+  const corner = openCorner(far.strip, opponents);
+  return clamp(corner, Math.min(near, deep), Math.max(near, deep));
+}
+
+function depthOf(court, cat) {
+  const range = court.catRange(cat);
+  const netEnd = cat.facing > 0 ? range.max : range.min;
+  const backEnd = cat.facing > 0 ? range.min : range.max;
+  if (netEnd === backEnd) return 0;
+  return clamp((cat.x - netEnd) / (backEnd - netEnd), 0, 1);
+}
+
+function frontDepthOf(court, opponents) {
+  let front = 1;
+  for (let i = 0; i < opponents.length; i += 1) {
+    const depth = depthOf(court, opponents[i]);
+    if (depth < front) front = depth;
+  }
+  return front;
+}
+
+function matchPost(court, cat, depth) {
+  return depthX(court.catRange(cat), cat.facing, depth);
+}
+
+function matchSmash(court, cat, opponents) {
+  const origin = court.reachPoint(cat);
+  const strip = landingStrip(court, opponents[0]);
+  const targetX = insetFromEnd(strip, attackCorner(court, strip, opponents), MATCH_SMASH_INSET);
+  const limit = Math.max(MATCH_SMASH_MAX_SPEED, launchSpeedLimit(court.state.width));
+  let best = null;
+  let steep = null;
+  for (let i = 0; i < MATCH_SMASH_TILTS.length; i += 1) {
+    const angle = absoluteAngle((MATCH_SMASH_TILTS[i] * Math.PI) / 180, cat.facing);
+    const aim = aimSpeedForLanding(
+      court,
+      origin,
+      angle,
+      cat.facing,
+      targetX,
+      MIN_LAUNCH_SPEED,
+      limit
+    );
+    if (best === null || aim.error < best.error) best = { angle, speed: aim.speed, error: aim.error };
+    if (steep === null && aim.error <= SMASH_TOLERANCE) steep = { angle, speed: aim.speed };
+  }
+  const chosen = steep || best;
+  return {
+    angle: chosen.angle,
+    speed: chosen.speed,
+    kind: "smash",
+    post: matchPost(court, cat, MATCH_SMASH_POST),
+  };
+}
+
+function matchDrive(court, cat, opponents) {
+  const origin = court.reachPoint(cat);
+  const strip = landingStrip(court, opponents[0]);
+  const targetX = attackCorner(court, strip, opponents);
+  const limit = Math.max(MATCH_DRIVE_MAX_SPEED, launchSpeedLimit(court.state.width));
+  let best = null;
+  for (let i = 0; i < MATCH_DRIVE_TILTS.length; i += 1) {
+    const angle = absoluteAngle((MATCH_DRIVE_TILTS[i] * Math.PI) / 180, cat.facing);
+    const aim = aimSpeedForLanding(
+      court,
+      origin,
+      angle,
+      cat.facing,
+      targetX,
+      MIN_LAUNCH_SPEED,
+      limit
+    );
+    if (best === null || aim.error < best.error) best = { angle, speed: aim.speed, error: aim.error };
+  }
+  return {
+    angle: best.angle,
+    speed: best.speed,
+    kind: "drive",
+    post: matchPost(court, cat, MATCH_DRIVE_POST),
+  };
+}
+
+function matchClear(court, cat) {
+  const origin = court.reachPoint(cat);
+  const far = opponentStrip(court, cat, MATCH_CLEAR_FLOOR_DEPTH);
+  const depth = randomBetween(MATCH_CLEAR_MIN_DEPTH, MATCH_CLEAR_MAX_DEPTH);
+  const targetX = depthX(far.strip, far.facing, depth);
+  const targetHeight = (origin.y - KEEP_UP_CEILING) * LIFT_APEX;
+  const best = bestArcShot(court, cat, LIFT_TILTS, origin, targetHeight, far, targetX);
+  return {
+    angle: best.angle,
+    speed: best.speed,
+    kind: "clear",
+    post: matchPost(court, cat, MATCH_CLEAR_POST),
+  };
+}
+
+function matchDrop(court, cat, opponents) {
+  const origin = court.reachPoint(cat);
+  const far = opponentStrip(court, cat, MATCH_DROP_FLOOR_DEPTH);
+  const targetX = bandTarget(far, opponents, MATCH_DROP_MIN_DEPTH, MATCH_DROP_MAX_DEPTH);
+  const targetHeight = (origin.y - KEEP_UP_CEILING) * MATCH_DROP_APEX;
+  const best = bestArcShot(court, cat, MATCH_DROP_TILTS, origin, targetHeight, far, targetX);
+  return {
+    angle: best.angle,
+    speed: best.speed,
+    kind: "drop",
+    post: matchPost(court, cat, MATCH_DROP_POST),
+  };
+}
+
+function matchNetShot(court, cat, opponents) {
+  const origin = court.reachPoint(cat);
+  const far = opponentStrip(court, cat, MATCH_NET_FLOOR_DEPTH);
+  const targetX = bandTarget(far, opponents, MATCH_NET_MIN_DEPTH, MATCH_NET_MAX_DEPTH);
+  const targetHeight = randomBetween(NET_APEX_MIN, NET_APEX_MAX);
+  const best = bestArcShot(court, cat, NET_TILTS, origin, targetHeight, far, targetX);
+  return {
+    angle: best.angle,
+    speed: best.speed,
+    kind: "net",
+    post: matchPost(court, cat, MATCH_NET_POST),
+  };
+}
+
+function chooseMatchKind(court, cat, bird, opponents) {
+  const catDepth = depthOf(court, cat);
+  const frontDepth = frontDepthOf(court, opponents);
+  const roll = Math.random();
+  if (bird.shot === "smash") {
+    if (catDepth <= MATCH_NET_ZONE && roll >= MATCH_DEFEND_CLEAR) return "net";
+    return "clear";
+  }
+  if (catDepth <= MATCH_NET_ZONE && frontDepth >= MATCH_DEEP_DEPTH) {
+    return roll < MATCH_NET_CHANCE ? "net" : "drive";
+  }
+  if (catDepth >= MATCH_DEEP_DEPTH && frontDepth >= MATCH_DEEP_DEPTH) {
+    return roll < MATCH_DEEP_DROP ? "drop" : "drive";
+  }
+  if (frontDepth <= MATCH_FRONT_DEPTH) {
+    return roll < MATCH_FRONT_CLEAR ? "clear" : "drive";
+  }
+  if (roll < MATCH_MIX_DRIVE) return "drive";
+  if (roll < MATCH_MIX_DRIVE + MATCH_MIX_DROP) return "drop";
+  return "clear";
+}
+
+function matchShot(court, cat, bird) {
+  const opponents = opposingCats(court, cat);
+  if (cat.stance === "overhead") return matchSmash(court, cat, opponents);
+  const kind = chooseMatchKind(court, cat, bird, opponents);
+  if (kind === "clear") return matchClear(court, cat);
+  if (kind === "drop") return matchDrop(court, cat, opponents);
+  if (kind === "net") return matchNetShot(court, cat, opponents);
+  return matchDrive(court, cat, opponents);
+}
+
+function smashOn(court, cat, bird) {
+  if (cat.rise > 0) return true;
+  const height = court.groundY() - OVERHEAD_HEIGHT - JUMP_HEIGHT;
+  const crossing = court.predictCrossingAt(bird, height);
+  if (crossing === null) return false;
+  const range = court.catRange(cat);
+  const target = clamp(crossing.x - cat.facing * OVERHEAD_OFFSET_X, range.min, range.max);
+  return Math.abs(target - cat.x) / court.state.movement.maxSpeed <= crossing.time;
+}
+
+function matchStance(court, cat, bird) {
+  return smashOn(court, cat, bird) ? "overhead" : "ground";
+}
+
 function groundStance() {
   return "ground";
 }
@@ -444,6 +728,7 @@ const SHOT_STRATEGIES = {
   rally: { shot: rallyShot, stance: groundStance },
   keepUps: { shot: keepUpShot, stance: groundStance },
   drill: { shot: drillShot, stance: drillStance },
+  match: { shot: matchShot, stance: matchStance },
 };
 
 function resolveStrategy(choice) {
@@ -597,6 +882,9 @@ function createCourt(canvas, options) {
   const chooseShot = strategy.shot;
   const chooseStance = strategy.stance;
   const paceOf = settings.timeScale || (() => 1);
+  const movement = settings.movement || {};
+  const speedFactor = typeof movement.speed === "number" ? movement.speed : 1;
+  const accelFactor = typeof movement.accel === "number" ? movement.accel : 1;
 
   const state = {
     width: 0,
@@ -605,6 +893,8 @@ function createCourt(canvas, options) {
     cats: [],
     birds: [],
     teams: { left: 0, right: 0, solo: 0 },
+    movement: { maxSpeed: CAT_MAX_SPEED * speedFactor, accel: CAT_ACCEL * accelFactor },
+    score: { left: 0, right: 0, server: null, winner: null },
     effects: [],
     kick: null,
     celebration: null,
@@ -855,6 +1145,11 @@ function createCourt(canvas, options) {
   }
 
   function serve(bird) {
+    if (state.score.winner) {
+      state.score.left = 0;
+      state.score.right = 0;
+      state.score.winner = null;
+    }
     const placement = settings.initialBird(state);
     bird.x = placement.x;
     bird.y = placement.y;
@@ -889,6 +1184,9 @@ function createCourt(canvas, options) {
     clearPosts();
     if (state.teams.left < 1 || state.teams.right < 1) return false;
     const side = bird.x < state.width / 2 ? "right" : "left";
+    state.score[side] += 1;
+    state.score.server = side;
+    if (state.score[side] >= GAME_POINTS) state.score.winner = side;
     state.celebration = { side, until: state.simTime + CHEER_DURATION };
     for (let i = 0; i < state.cats.length; i += 1) {
       const cat = state.cats[i];
@@ -980,7 +1278,7 @@ function createCourt(canvas, options) {
 
   function arrivalTime(cat, x) {
     const delta = racketTargetFor(cat, x) - cat.x;
-    const travel = Math.abs(delta) / CAT_MAX_SPEED;
+    const travel = Math.abs(delta) / state.movement.maxSpeed;
     const turning = cat.vx * delta < 0 && Math.abs(cat.vx) > TURN_DRIFT;
     return turning ? travel + TURN_PENALTY : travel;
   }
@@ -1205,11 +1503,11 @@ function createCourt(canvas, options) {
       const delta = cat.target - cat.x;
       const direction = Math.sign(delta);
       const desired = clamp(
-        direction * Math.sqrt(2 * CAT_ACCEL * Math.abs(delta)),
-        -CAT_MAX_SPEED,
-        CAT_MAX_SPEED
+        direction * Math.sqrt(2 * state.movement.accel * Math.abs(delta)),
+        -state.movement.maxSpeed,
+        state.movement.maxSpeed
       );
-      cat.vx += clamp(desired - cat.vx, -CAT_ACCEL * dt, CAT_ACCEL * dt);
+      cat.vx += clamp(desired - cat.vx, -state.movement.accel * dt, state.movement.accel * dt);
     }
     cat.x += cat.vx * dt;
     if (cat.x < range.min) {

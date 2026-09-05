@@ -120,7 +120,7 @@ h1 {
 .link:hover { border-color: var(--moss); }
 
 .court-wrap { margin: 1rem 0 4rem; }
-.drill-wrap { margin: 2rem 0 0; }
+.drill-wrap, .match-wrap { margin: 2rem 0 0; }
 .court-bleed {
   margin-inline: calc(50% - 50vw);
   padding-inline: 1.25rem;
