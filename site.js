@@ -11,6 +11,10 @@ const MIN_PER_SIDE = 1;
 const MAX_PER_SIDE = 6;
 const MIN_BIRDS = 1;
 const MAX_BIRDS = 6;
+const MATCH_SPEED = 1.6;
+const MATCH_ACCEL = 2;
+const SCORE_TOP = 12;
+const SCORE_SIZE = 14;
 
 function racketLine(state) {
   return state.height - GROUND_MARGIN - RACKET_HEIGHT;
@@ -43,6 +47,19 @@ function drawNet(ctx, state, colors) {
   ctx.setLineDash([]);
 }
 
+function serifStack() {
+  return getComputedStyle(document.documentElement).getPropertyValue("--serif").trim();
+}
+
+function drawScoreboard(ctx, state, colors) {
+  drawNet(ctx, state, colors);
+  ctx.fillStyle = colors.inkSoft;
+  ctx.font = SCORE_SIZE + "px " + serifStack();
+  ctx.textAlign = "center";
+  ctx.textBaseline = "top";
+  ctx.fillText(state.score.left + " – " + state.score.right, state.width / 2, SCORE_TOP);
+}
+
 function serveBird(state) {
   const server = state.cats[Math.floor(Math.random() * state.cats.length)];
   if (!server) return { x: state.width / 2, y: racketLine(state), vx: 0, vy: 0 };
@@ -58,9 +75,25 @@ function restingBird(state) {
   return { x: state.width / 2, y: REST_HEIGHT, vx: 0, vy: 0, hold: REST_PAUSE };
 }
 
+function matchServe(state) {
+  const server = state.score.server;
+  for (let i = 0; i < state.cats.length; i += 1) {
+    const cat = state.cats[i];
+    if (cat.side !== server) continue;
+    return {
+      x: cat.x + cat.facing * RACKET_OFFSET_X,
+      y: racketLine(state),
+      vx: 0,
+      vy: 0,
+    };
+  }
+  return serveBird(state);
+}
+
 const courtCanvas = document.getElementById("court");
 const keepUpsCanvas = document.getElementById("keepups");
 const drillCanvas = document.getElementById("drill");
+const matchCanvas = document.getElementById("match");
 
 const rally = createCourt(courtCanvas, {
   teams: { left: 1, right: 1 },
@@ -88,7 +121,17 @@ const drill = createCourt(drillCanvas, {
   releaseOnStart: false,
 });
 
-const courts = { rally, keepups, drill };
+const match = createCourt(matchCanvas, {
+  teams: { left: 1, right: 1 },
+  birds: 1,
+  chooseShot: "match",
+  movement: { speed: MATCH_SPEED, accel: MATCH_ACCEL },
+  drawBackdrop: drawScoreboard,
+  initialBird: matchServe,
+  releaseOnStart: false,
+});
+
+const courts = { rally, keepups, drill, match };
 
 function sideToFill(teams) {
   if (teams.solo > 0) return teams.solo < MAX_PER_SIDE ? "solo" : null;
@@ -134,6 +177,7 @@ function wireControls(court, row) {
 wireControls(rally, document.querySelector('[data-controls="rally"]'));
 wireControls(keepups, document.querySelector('[data-controls="keepups"]'));
 wireControls(drill, document.querySelector('[data-controls="drill"]'));
+wireControls(match, document.querySelector('[data-controls="match"]'));
 
 function watchForRelease(court, element) {
   const watcher = new IntersectionObserver((entries) => {
@@ -157,10 +201,13 @@ if (reducedMotion) {
   rally.render();
   keepups.render();
   drill.render();
+  match.render();
 } else {
   rally.start();
   keepups.start();
   drill.start();
+  match.start();
   watchForRelease(keepups, keepUpsCanvas);
   watchForRelease(drill, drillCanvas);
+  watchForRelease(match, matchCanvas);
 }
