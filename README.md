@@ -7,7 +7,7 @@ A small, static personal website. No build step, no dependencies.
 - `index.html` — all content lives here
 - `style.css` — colours, type, layout
 - `engine.js` — the shuttlecock physics, the cats and the hit feel, as a reusable court of any number of cats and shuttlecocks
-- `site.js` — wires up the four courts and their tiny controls: the rally in the header, the keep-ups in the about section, the match in the work section, the drill in the skills section
+- `site.js` — wires up the five courts and their tiny controls: the rally in the header, the keep-ups in the about section, the match in the work section, the play in the projects section, the drill in the skills section
 - `favicon.svg` — a tiny shuttlecock
 
 ## filling it in
