@@ -199,6 +199,11 @@ h1 {
   .court-hint.keys { display: none; }
   .court-hint.touch { display: block; }
   .sticks { display: flex; }
+  .play-wrap {
+    -webkit-user-select: none;
+    user-select: none;
+    -webkit-touch-callout: none;
+  }
 }
 
 .court-controls {
@@ -325,4 +330,9 @@ footer p { margin: 0; }
   .sticks { display: none; }
   .court-hint.keys { display: block; }
   .court-hint.touch { display: none; }
+  .play-wrap {
+    -webkit-user-select: auto;
+    user-select: auto;
+    -webkit-touch-callout: default;
+  }
 }
